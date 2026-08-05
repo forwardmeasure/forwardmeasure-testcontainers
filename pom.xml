@@ -53,6 +53,7 @@
   </properties>
   <modules>
     <module>forwardmeasure-testcontainers-bom</module>
+    <module>forwardmeasure-testcontainers-minio</module>
     <module>forwardmeasure-testcontainers-postgresql</module>
     <module>forwardmeasure-testcontainers-junit-jupiter</module>
     <module>forwardmeasure-testcontainers-quarkus</module>
@@ -89,6 +90,11 @@
         <groupId>org.postgresql</groupId>
         <artifactId>postgresql</artifactId>
         <version>${postgresql.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>forwardmeasure-testcontainers-minio</artifactId>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>
