@@ -34,6 +34,7 @@
     <quarkus.version>3.38.0</quarkus.version>
     <postgresql.version>42.7.13</postgresql.version>
     <testcontainers.version>2.0.5</testcontainers.version>
+    <keycloak.version>26.5.7</keycloak.version>
     <junit.version>6.1.2</junit.version>
     <slf4j.version>2.0.18</slf4j.version>
     <maven.clean.version>3.5.0</maven.clean.version>
@@ -54,6 +55,7 @@
   <modules>
     <module>forwardmeasure-testcontainers-bom</module>
     <module>forwardmeasure-testcontainers-minio</module>
+    <module>forwardmeasure-testcontainers-keycloak</module>
     <module>forwardmeasure-testcontainers-postgresql</module>
     <module>forwardmeasure-testcontainers-junit-jupiter</module>
     <module>forwardmeasure-testcontainers-quarkus</module>
@@ -90,6 +92,11 @@
         <groupId>org.postgresql</groupId>
         <artifactId>postgresql</artifactId>
         <version>${postgresql.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>forwardmeasure-testcontainers-keycloak</artifactId>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>

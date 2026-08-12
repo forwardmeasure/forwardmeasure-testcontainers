@@ -1,0 +1,51 @@
+{
+  "realm": "forwardmeasure-test",
+  "enabled": true,
+  "sslRequired": "none",
+  "roles": {
+    "realm": [
+      {"name": "workload"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "browser-test",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "workload-test",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "workload-test-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocol": "openid-connect",
+      "defaultClientScopes": ["roles"]
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-workload-test",
+      "enabled": true,
+      "serviceAccountClientId": "workload-test",
+      "realmRoles": ["workload"]
+    },
+    {
+      "username": "operator",
+      "enabled": true,
+      "firstName": "Test",
+      "lastName": "Operator",
+      "email": "operator@forwardmeasure.invalid",
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        {"type": "password", "value": "operator-password", "temporary": false}
+      ]
+    }
+  ]
+}
