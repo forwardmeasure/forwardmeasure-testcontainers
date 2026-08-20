@@ -13,22 +13,21 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 public @interface WithPostgreSqlTestContainer {
 
-    String image() default "postgres:18-alpine";
+  String image() default "postgres:18-alpine";
 
-    String databaseName() default "forwardmeasure_test";
+  String databaseName() default "forwardmeasure_test";
 
-    String username() default "forwardmeasure";
+  String username() default "forwardmeasure";
 
-    String password() default "forwardmeasure-test-only";
+  String password() default "forwardmeasure-test-only";
 
-    String[] datasourceNames() default {};
+  String[] datasourceNames() default {};
 
-    String networkAlias() default "postgres";
+  String networkAlias() default "postgres";
 
-    boolean useNetworkJdbcUrl() default false;
+  boolean useNetworkJdbcUrl() default false;
 
-    long memoryBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_BYTES;
+  long memoryBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_BYTES;
 
-    long memorySwapBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_SWAP_BYTES;
+  long memorySwapBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_SWAP_BYTES;
 }
-

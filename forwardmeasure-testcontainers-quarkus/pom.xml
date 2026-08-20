@@ -8,6 +8,17 @@
   </parent>
   <artifactId>forwardmeasure-testcontainers-quarkus</artifactId>
   <name>ForwardMeasure Testcontainers Quarkus</name>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.forwardmeasure.platform</groupId>
+        <artifactId>forwardmeasure-platform-quarkus-bom</artifactId>
+        <version>${forwardmeasure.platform.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
   <dependencies>
     <dependency>
       <groupId>${project.groupId}</groupId>

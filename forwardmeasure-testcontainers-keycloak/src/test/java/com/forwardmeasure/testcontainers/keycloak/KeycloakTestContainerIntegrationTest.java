@@ -10,29 +10,24 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.DockerClientFactory;
 
 class KeycloakTestContainerIntegrationTest {
-    @Test
-    void importsRealmAndIssuesUserAndWorkloadTokens() throws IOException {
-        assumeTrue(DockerClientFactory.instance().isDockerAvailable());
-        String realm;
-        try (var stream = getClass().getResourceAsStream(
-                "/keycloak-test-realm.json")) {
-            if (stream == null) {
-                throw new IllegalStateException("Missing Keycloak test realm");
-            }
-            realm = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-        }
-
-        try (var keycloak = new KeycloakTestContainer(
-                        "forwardmeasure-test", realm)
-                .start()) {
-            String user = keycloak.passwordToken(
-                    "browser-test", "operator", "operator-password");
-            String workload = keycloak.clientCredentialsToken(
-                    "workload-test", "workload-test-secret");
-
-            assertTrue(user.split("\\.").length >= 2);
-            assertTrue(workload.split("\\.").length >= 2);
-            assertNotEquals(user, workload);
-        }
+  @Test
+  void importsRealmAndIssuesUserAndWorkloadTokens() throws IOException {
+    assumeTrue(DockerClientFactory.instance().isDockerAvailable());
+    String realm;
+    try (var stream = getClass().getResourceAsStream("/keycloak-test-realm.json")) {
+      if (stream == null) {
+        throw new IllegalStateException("Missing Keycloak test realm");
+      }
+      realm = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
     }
+
+    try (var keycloak = new KeycloakTestContainer("forwardmeasure-test", realm).start()) {
+      String user = keycloak.passwordToken("browser-test", "operator", "operator-password");
+      String workload = keycloak.clientCredentialsToken("workload-test", "workload-test-secret");
+
+      assertTrue(user.split("\\.").length >= 2);
+      assertTrue(workload.split("\\.").length >= 2);
+      assertNotEquals(user, workload);
+    }
+  }
 }

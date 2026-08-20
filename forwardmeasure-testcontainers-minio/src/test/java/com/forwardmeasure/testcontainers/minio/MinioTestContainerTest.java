@@ -11,24 +11,27 @@ import org.junit.jupiter.api.Test;
 
 class MinioTestContainerTest {
 
-    @Test
-    void startsRealMinioAndRedactsCredentials() throws Exception {
-        try (var minio = new MinioTestContainer().start()) {
-            var response = HttpClient.newHttpClient().send(
-                    HttpRequest.newBuilder(minio.hostEndpoint().resolve(
-                            "/minio/health/ready")).GET().build(),
-                    HttpResponse.BodyHandlers.discarding());
+  @Test
+  void startsRealMinioAndRedactsCredentials() throws Exception {
+    try (var minio = new MinioTestContainer().start()) {
+      var response =
+          HttpClient.newHttpClient()
+              .send(
+                  HttpRequest.newBuilder(minio.hostEndpoint().resolve("/minio/health/ready"))
+                      .GET()
+                      .build(),
+                  HttpResponse.BodyHandlers.discarding());
 
-            assertTrue(minio.isRunning());
-            assertTrue(response.statusCode() >= 200 && response.statusCode() < 300);
-            assertFalse(minio.configuration().toString().contains(minio.secretKey()));
-        }
+      assertTrue(minio.isRunning());
+      assertTrue(response.statusCode() >= 200 && response.statusCode() < 300);
+      assertFalse(minio.configuration().toString().contains(minio.secretKey()));
     }
+  }
 
-    @Test
-    void refusesEndpointsBeforeStartup() {
-        try (var minio = new MinioTestContainer()) {
-            assertThrows(IllegalStateException.class, minio::hostEndpoint);
-        }
+  @Test
+  void refusesEndpointsBeforeStartup() {
+    try (var minio = new MinioTestContainer()) {
+      assertThrows(IllegalStateException.class, minio::hostEndpoint);
     }
+  }
 }

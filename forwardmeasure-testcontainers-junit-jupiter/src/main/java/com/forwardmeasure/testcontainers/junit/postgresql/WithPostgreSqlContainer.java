@@ -13,16 +13,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @ExtendWith(PostgreSqlContainerExtension.class)
 public @interface WithPostgreSqlContainer {
 
-    String image() default "postgres:18-alpine";
+  String image() default "postgres:18-alpine";
 
-    String databaseName() default "forwardmeasure_test";
+  String databaseName() default "forwardmeasure_test";
 
-    String username() default "forwardmeasure";
+  String username() default "forwardmeasure";
 
-    String password() default "forwardmeasure-test-only";
+  String password() default "forwardmeasure-test-only";
 
-    long memoryBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_BYTES;
+  long memoryBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_BYTES;
 
-    long memorySwapBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_SWAP_BYTES;
+  long memorySwapBytes() default PostgreSqlContainerConfiguration.DEFAULT_MEMORY_SWAP_BYTES;
 }
-
