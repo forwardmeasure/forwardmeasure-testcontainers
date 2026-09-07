@@ -44,7 +44,13 @@ public final class KeycloakTestContainer implements AutoCloseable {
             .withCopyToContainer(
                 Transferable.of(realmJson.getBytes(StandardCharsets.UTF_8), 0444),
                 "/opt/keycloak/data/import/realm.json")
-            .withCommand("start-dev", "--import-realm")
+            // --features=authzen: enables Keycloak 26.7's experimental (opt-in) OpenID AuthZen
+            // Authorization API module (org.keycloak.common.Profile.Feature.AUTHZEN is
+            // Type.EXPERIMENTAL, disabled unless explicitly requested). Harmless to enable
+            // unconditionally for every caller of this shared fixture: it only adds the
+            // /realms/{realm}/authzen/access/v1/{evaluation,evaluations} endpoints on top of the
+            // existing Authorization Services engine, it does not change any other behavior.
+            .withCommand("start-dev", "--import-realm", "--features=authzen")
             .withExposedPorts(8080)
             .waitingFor(
                 Wait.forHttp("/realms/" + this.realm)
