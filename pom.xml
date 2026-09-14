@@ -5,7 +5,7 @@
   <parent>
     <groupId>com.forwardmeasure.platform</groupId>
     <artifactId>forwardmeasure-platform</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <relativePath>../forwardmeasure-platform/pom.xml</relativePath>
   </parent>
   
@@ -40,14 +40,15 @@
   </licenses>
  
   <properties>
-    <revision>1.0.0</revision>
+    <revision>1.1.0</revision>
   </properties>
- 
+
   <modules>
     <module>forwardmeasure-testcontainers-bom</module>
     <module>forwardmeasure-testcontainers-minio</module>
     <module>forwardmeasure-testcontainers-keycloak</module>
     <module>forwardmeasure-testcontainers-postgresql</module>
+    <module>forwardmeasure-testcontainers-opensearch</module>
     <module>forwardmeasure-testcontainers-kubernetes</module>
     <module>forwardmeasure-testcontainers-junit-jupiter</module>
     <module>forwardmeasure-testcontainers-quarkus</module>
@@ -68,6 +69,11 @@
       <dependency>
         <groupId>${project.groupId}</groupId>
         <artifactId>forwardmeasure-testcontainers-postgresql</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>forwardmeasure-testcontainers-opensearch</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

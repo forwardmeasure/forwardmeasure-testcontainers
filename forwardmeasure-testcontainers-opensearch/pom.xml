@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.forwardmeasure.testcontainers</groupId>
+    <artifactId>forwardmeasure-testcontainers-parent</artifactId>
+    <version>${revision}</version>
+  </parent>
+  <artifactId>forwardmeasure-testcontainers-opensearch</artifactId>
+  <name>ForwardMeasure Testcontainers OpenSearch</name>
+  <dependencies>
+    <dependency>
+      <!-- org.opensearch:opensearch-testcontainers is the OpenSearch project's own module, not
+           covered by the inherited org.testcontainers:testcontainers-bom import - needs an
+           explicit version. 4.1.0 mirrors every other real consumer already pinning it directly
+           across the ecosystem (forwardmeasure-entity-matching, forwardmeasure-entity-intelligence). -->
+      <groupId>org.opensearch</groupId>
+      <artifactId>opensearch-testcontainers</artifactId>
+      <version>4.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

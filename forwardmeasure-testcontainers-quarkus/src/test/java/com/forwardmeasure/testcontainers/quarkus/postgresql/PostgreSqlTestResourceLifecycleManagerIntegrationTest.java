@@ -4,13 +4,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @WithPostgreSqlTestContainer(
     databaseName = "quarkus_contract",
     datasourceNames = {"audit"})
 class PostgreSqlTestResourceLifecycleManagerIntegrationTest {
+
+  private static final Logger LOGGER =
+      LoggerFactory.getLogger(PostgreSqlTestResourceLifecycleManagerIntegrationTest.class);
 
   @Test
   void startsRealPostgresAndProducesDefaultAndNamedDatasourceProperties() throws Exception {
@@ -20,6 +26,16 @@ class PostgreSqlTestResourceLifecycleManagerIntegrationTest {
     manager.init(configuration);
 
     Map<String, String> properties = manager.start();
+    LOGGER.info(
+        "Started, produced {} properties (passwords redacted): {}",
+        properties.size(),
+        properties.entrySet().stream()
+            .map(
+                entry ->
+                    entry.getKey().toLowerCase(java.util.Locale.ROOT).contains("password")
+                        ? entry.getKey() + "=<redacted>"
+                        : entry.getKey() + "=" + entry.getValue())
+            .collect(Collectors.joining(", ")));
     try {
       assertEquals(
           properties.get("quarkus.datasource.jdbc.url"),
@@ -34,9 +50,11 @@ class PostgreSqlTestResourceLifecycleManagerIntegrationTest {
           var statement = connection.createStatement();
           var result = statement.executeQuery("select current_database()")) {
         assertTrue(result.next());
+        LOGGER.info("current_database={}", result.getString(1));
         assertEquals("quarkus_contract", result.getString(1));
       }
     } finally {
+      LOGGER.info("Stopping lifecycle manager");
       manager.stop();
     }
   }

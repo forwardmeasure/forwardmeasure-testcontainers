@@ -7,9 +7,15 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.DockerClientFactory;
 
 class KeycloakTestContainerIntegrationTest {
+
+  private static final Logger LOGGER =
+      LoggerFactory.getLogger(KeycloakTestContainerIntegrationTest.class);
+
   @Test
   void importsRealmAndIssuesUserAndWorkloadTokens() throws IOException {
     assumeTrue(DockerClientFactory.instance().isDockerAvailable());
@@ -22,8 +28,16 @@ class KeycloakTestContainerIntegrationTest {
     }
 
     try (var keycloak = new KeycloakTestContainer("forwardmeasure-test", realm).start()) {
+      LOGGER.info("Started Keycloak with realm 'forwardmeasure-test' imported");
+
       String user = keycloak.passwordToken("browser-test", "operator", "operator-password");
       String workload = keycloak.clientCredentialsToken("workload-test", "workload-test-secret");
+      // Logging token segment counts only, never the tokens themselves, even for ephemeral
+      // throwaway test containers.
+      LOGGER.info(
+          "Issued user token ({} segments) and workload token ({} segments)",
+          user.split("\\.").length,
+          workload.split("\\.").length);
 
       assertTrue(user.split("\\.").length >= 2);
       assertTrue(workload.split("\\.").length >= 2);

@@ -9,6 +9,8 @@ import com.forwardmeasure.testcontainers.postgresql.PostgreSqlContainerConfigura
 import com.forwardmeasure.testcontainers.postgresql.PostgreSqlTestContainer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.utility.DockerImageName;
@@ -16,9 +18,16 @@ import org.testcontainers.utility.DockerImageName;
 @WithPostgreSqlContainer(databaseName = "junit_contract")
 class PostgreSqlContainerExtensionIntegrationTest {
 
+  private static final Logger LOGGER =
+      LoggerFactory.getLogger(PostgreSqlContainerExtensionIntegrationTest.class);
+
   @Test
   void startsRealPostgresAndInjectsTheOwnedContainer(PostgreSqlTestContainer container)
       throws Exception {
+    LOGGER.info(
+        "@WithPostgreSqlContainer injected {} - jdbc url {}",
+        container.containerName(),
+        container.hostJdbcUrl());
     container.createSchema("junit_fixture");
     assertFalse(container.configuration().toString().contains(container.password()));
     assertThrows(IllegalArgumentException.class, () -> container.createSchema("unsafe; schema"));
@@ -27,6 +36,7 @@ class PostgreSqlContainerExtensionIntegrationTest {
         var result = statement.executeQuery("select current_database(), current_user")) {
       assertTrue(container.isRunning());
       assertTrue(result.next());
+      LOGGER.info("current_database={} current_user={}", result.getString(1), result.getString(2));
       assertEquals("junit_contract", result.getString(1));
       assertEquals("forwardmeasure", result.getString(2));
     }
@@ -57,6 +67,10 @@ class PostgreSqlContainerExtensionIntegrationTest {
                 .withEnv("PGPASSWORD", database.password())
                 .withCommand("sleep", "60")) {
       client.start();
+      LOGGER.info(
+          "Client container {} joined network alias contract-postgres, target url {}",
+          client.getContainerName(),
+          database.networkJdbcUrl());
 
       var result =
           client.execInContainer(
@@ -69,6 +83,7 @@ class PostgreSqlContainerExtensionIntegrationTest {
               database.databaseName(),
               "-tAc",
               "select 1");
+      LOGGER.info("psql exit={} stdout={}", result.getExitCode(), result.getStdout().trim());
 
       assertEquals(0, result.getExitCode(), result.getStderr());
       assertEquals("1", result.getStdout().trim());
