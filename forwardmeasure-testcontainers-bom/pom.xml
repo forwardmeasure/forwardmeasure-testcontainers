@@ -17,14 +17,17 @@
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
+ 
   <parent>
     <groupId>com.forwardmeasure.testcontainers</groupId>
     <artifactId>forwardmeasure-testcontainers-parent</artifactId>
     <version>${revision}</version>
   </parent>
+  
   <artifactId>forwardmeasure-testcontainers-bom</artifactId>
   <packaging>pom</packaging>
   <name>ForwardMeasure Testcontainers BOM</name>
+ 
   <dependencyManagement>
     <dependencies>
       <dependency>

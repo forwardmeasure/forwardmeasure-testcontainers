@@ -15,8 +15,17 @@ public record MinioContainerConfiguration(
     long memoryBytes,
     long memorySwapBytes) {
 
+  /**
+   * MinIO relicensed under AGPLv3 and stopped publishing prebuilt community images/binaries in
+   * October 2025; Docker Hub then pulled every {@code minio/minio} tag entirely (confirmed
+   * 2026-09-15 - {@code docker pull minio/minio:*} now returns "repository does not exist"). MinIO
+   * still publishes to {@code quay.io/minio/minio} under the same real release tags, no login
+   * required - this is the last tag that actually exists there (confirmed via quay.io's own tag
+   * API), rolled forward under quay's {@code .hotfix.<sha>} suffix convention to carry a real
+   * security fix (a service-account privilege-escalation CVE) past the last normal release.
+   */
   public static final DockerImageName DEFAULT_IMAGE =
-      DockerImageName.parse("minio/minio:RELEASE.2024-01-16T16-07-38Z");
+      DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772");
 
   public static final long DEFAULT_MEMORY_BYTES = 256L * 1024L * 1024L;
 
