@@ -22,40 +22,28 @@
     <artifactId>forwardmeasure-testcontainers-parent</artifactId>
     <version>${revision}</version>
   </parent>
-  <artifactId>forwardmeasure-testcontainers-junit-jupiter</artifactId>
-  <name>ForwardMeasure Testcontainers JUnit Jupiter</name>
+  <artifactId>forwardmeasure-testcontainers-kafka</artifactId>
+  <name>ForwardMeasure Testcontainers Kafka</name>
   <dependencies>
+    <!-- Real artifactId confirmed from forwardmeasure-data-streaming's own cached-jar discovery:
+         Testcontainers 2.x renamed this from the older "kafka" (1.x) to "testcontainers-kafka".
+         Version comes from the inherited testcontainers-bom (2.0.5, via forwardmeasure-platform) -
+         no explicit version here, same as every other module in this repo. -->
     <dependency>
-      <groupId>${project.groupId}</groupId>
-      <artifactId>forwardmeasure-testcontainers-postgresql</artifactId>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-kafka</artifactId>
     </dependency>
     <dependency>
-      <groupId>${project.groupId}</groupId>
-      <artifactId>forwardmeasure-testcontainers-opensearch</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>${project.groupId}</groupId>
-      <artifactId>forwardmeasure-testcontainers-kafka</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>${project.groupId}</groupId>
-      <artifactId>forwardmeasure-testcontainers-kubernetes</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-api</artifactId>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers</artifactId>
-    </dependency>
-    <!-- Real client used by this module's own Kafka extension proof test - version comes from the
-         inherited forwardmeasure-platform BOM management, no explicit version here. -->
+    <!-- Real client used by this module's own proof test to round-trip a real message - version
+         comes from the inherited forwardmeasure-platform BOM management, no explicit version here. -->
     <dependency>
       <groupId>org.apache.kafka</groupId>
       <artifactId>kafka-clients</artifactId>

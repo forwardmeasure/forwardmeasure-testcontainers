@@ -52,6 +52,11 @@
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>
+        <artifactId>forwardmeasure-testcontainers-kafka</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
         <artifactId>forwardmeasure-testcontainers-kubernetes</artifactId>
         <version>${project.version}</version>
       </dependency>

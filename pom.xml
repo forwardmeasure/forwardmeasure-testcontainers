@@ -49,6 +49,7 @@
     <module>forwardmeasure-testcontainers-keycloak</module>
     <module>forwardmeasure-testcontainers-postgresql</module>
     <module>forwardmeasure-testcontainers-opensearch</module>
+    <module>forwardmeasure-testcontainers-kafka</module>
     <module>forwardmeasure-testcontainers-kubernetes</module>
     <module>forwardmeasure-testcontainers-junit-jupiter</module>
     <module>forwardmeasure-testcontainers-quarkus</module>
@@ -78,6 +79,11 @@
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>
+        <artifactId>forwardmeasure-testcontainers-kafka</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
         <artifactId>forwardmeasure-testcontainers-kubernetes</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -93,7 +99,7 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
-  
+
   <build>
     <pluginManagement>
       <plugins>
