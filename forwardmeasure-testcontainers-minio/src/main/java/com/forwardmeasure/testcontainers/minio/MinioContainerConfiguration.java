@@ -16,16 +16,16 @@ public record MinioContainerConfiguration(
     long memorySwapBytes) {
 
   /**
-   * MinIO relicensed under AGPLv3 and stopped publishing prebuilt community images/binaries in
-   * October 2025; Docker Hub then pulled every {@code minio/minio} tag entirely (confirmed
-   * 2026-09-15 - {@code docker pull minio/minio:*} now returns "repository does not exist"). MinIO
-   * still publishes to {@code quay.io/minio/minio} under the same real release tags, no login
-   * required - this is the last tag that actually exists there (confirmed via quay.io's own tag
-   * API), rolled forward under quay's {@code .hotfix.<sha>} suffix convention to carry a real
-   * security fix (a service-account privilege-escalation CVE) past the last normal release.
+   * PGSTY Silo (https://github.com/pgsty/silo): the community-maintained fork of the MinIO server,
+   * published to Docker Hub with pinned release tags. MinIO itself publishes no anonymously
+   * pullable community image any more - Docker Hub's {@code minio/minio} is gone and {@code
+   * quay.io/minio/minio} answers 401 (both confirmed 2026-10-02). Silo keeps MinIO's interface:
+   * {@code server /data}, {@code MINIO_ROOT_USER}/{@code MINIO_ROOT_PASSWORD}, port 9000 and {@code
+   * /minio/health/ready} (verified against this tag 2026-10-02).
    */
   public static final DockerImageName DEFAULT_IMAGE =
-      DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772");
+      DockerImageName.parse("docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z")
+          .asCompatibleSubstituteFor("minio/minio");
 
   public static final long DEFAULT_MEMORY_BYTES = 256L * 1024L * 1024L;
 

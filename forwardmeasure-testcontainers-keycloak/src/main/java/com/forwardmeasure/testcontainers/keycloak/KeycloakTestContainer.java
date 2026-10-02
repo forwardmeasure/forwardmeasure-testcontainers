@@ -12,6 +12,7 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
@@ -26,13 +27,30 @@ public final class KeycloakTestContainer implements AutoCloseable {
 
   private final String realm;
 
+  private final String networkAlias;
+
   private final GenericContainer<?> container;
 
   private final HttpClient http =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
 
   public KeycloakTestContainer(String realm, String realmJson) {
+    this(realm, realmJson, null, null);
+  }
+
+  /**
+   * Joins {@code network} as {@code alias}, with Keycloak's hostname pinned to the in-network URL
+   * ({@code http://<alias>:8080}). Every token then carries {@link #networkIssuer()} as its {@code
+   * iss}, whether it was requested from the host through {@link #issuer()}'s mapped port or from
+   * another container on the network - so containerized services validate host-minted tokens
+   * against the same issuer they discover over the network, with no per-framework issuer override.
+   */
+  public KeycloakTestContainer(String realm, String realmJson, Network network, String alias) {
     this.realm = required(realm, "realm");
+    if ((network == null) != (alias == null)) {
+      throw new IllegalArgumentException("network and alias must be given together");
+    }
+    this.networkAlias = alias == null ? null : required(alias, "alias");
     Objects.requireNonNull(realmJson, "realmJson");
     if (realmJson.isBlank()) {
       throw new IllegalArgumentException("realmJson must not be blank");
@@ -56,6 +74,12 @@ public final class KeycloakTestContainer implements AutoCloseable {
                 Wait.forHttp("/realms/" + this.realm)
                     .forStatusCode(200)
                     .withStartupTimeout(Duration.ofMinutes(3)));
+    if (network != null) {
+      container
+          .withNetwork(network)
+          .withNetworkAliases(alias)
+          .withEnv("KC_HOSTNAME", "http://" + alias + ":8080");
+    }
   }
 
   public KeycloakTestContainer start() {
@@ -63,10 +87,27 @@ public final class KeycloakTestContainer implements AutoCloseable {
     return this;
   }
 
+  /**
+   * The realm URL reachable from the host (mapped port) - for admin and token calls from the test
+   * process. Without a network this is also every token's {@code iss}; with one, see {@link
+   * #networkIssuer()}.
+   */
   public URI issuer() {
     ensureRunning();
     return URI.create(
         "http://" + container.getHost() + ":" + container.getMappedPort(8080) + "/realms/" + realm);
+  }
+
+  /**
+   * The realm URL on the network given to {@link #KeycloakTestContainer(String, String, Network,
+   * String)} - every token's {@code iss}, and what containers on that network configure as their
+   * issuer.
+   */
+  public URI networkIssuer() {
+    if (networkAlias == null) {
+      throw new IllegalStateException("This Keycloak test container was not started on a network");
+    }
+    return URI.create("http://" + networkAlias + ":8080/realms/" + realm);
   }
 
   public String passwordToken(String clientId, String username, String password) {
