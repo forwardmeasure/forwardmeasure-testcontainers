@@ -1,3 +1,19 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.forwardmeasure.testcontainers.postgresql;
 
 import java.util.List;
@@ -18,9 +34,15 @@ public record PostgreSqlContainerConfiguration(
 
   public static final DockerImageName DEFAULT_IMAGE = DockerImageName.parse("postgres:18-alpine");
 
-  public static final long DEFAULT_MEMORY_BYTES = 128L * 1024L * 1024L;
+  /**
+   * Postgres's own default {@code shared_buffers} is 128 MiB, so a 128 MiB cap leaves nothing for
+   * backends: once a test filled shared memory across several databases and connection pools, the
+   * kernel OOM-killed backends inside the container's memory cgroup and Postgres dropped every open
+   * connection (seen 2026-10-03 in the workflow-publisher contract tests).
+   */
+  public static final long DEFAULT_MEMORY_BYTES = 512L * 1024L * 1024L;
 
-  public static final long DEFAULT_MEMORY_SWAP_BYTES = 256L * 1024L * 1024L;
+  public static final long DEFAULT_MEMORY_SWAP_BYTES = 1024L * 1024L * 1024L;
 
   public PostgreSqlContainerConfiguration {
     Objects.requireNonNull(image, "image");
