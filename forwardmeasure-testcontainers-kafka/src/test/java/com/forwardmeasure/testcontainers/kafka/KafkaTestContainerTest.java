@@ -17,6 +17,8 @@
 package com.forwardmeasure.testcontainers.kafka;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,6 +53,9 @@ class KafkaTestContainerTest {
     try (var kafka = new KafkaTestContainer().start()) {
       LOGGER.info("Started {} at {}", kafka.containerName(), kafka.bootstrapServers());
       assertTrue(kafka.isRunning());
+      assertSame(kafka, kafka.start());
+      assertThrows(IllegalStateException.class, kafka::networkBootstrapServers);
+      assertThrows(IllegalStateException.class, kafka::hostDockerInternalBootstrapServers);
 
       String topic = "kafka-test-container-" + UUID.randomUUID();
       try (Admin admin =
@@ -156,5 +161,61 @@ class KafkaTestContainerTest {
       LOGGER.info("Confirming bootstrapServers() rejects a not-yet-started container");
       assertThrows(IllegalStateException.class, kafka::bootstrapServers);
     }
+  }
+
+  @Test
+  void hostGatewayListenerAdvertisesAnAddressReachableByAnIsolatedClient() throws Exception {
+    var config = KafkaContainerConfiguration.defaults().withHostDockerInternalListener();
+    var kafka = new KafkaTestContainer(config);
+    try (kafka) {
+      kafka.start();
+      assertSame(config, kafka.configuration());
+      String topic = "host-gateway-" + UUID.randomUUID();
+      try (Admin admin =
+          Admin.create(
+              Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.bootstrapServers()))) {
+        admin
+            .createTopics(List.of(new NewTopic(topic, 1, (short) 1)))
+            .all()
+            .get(30, java.util.concurrent.TimeUnit.SECONDS);
+      }
+      try (var client =
+          new org.testcontainers.containers.GenericContainer<>(config.image())
+              .withExtraHost("host.docker.internal", "host-gateway")
+              .withCommand("sleep", "infinity")) {
+        client.start();
+        var result =
+            client.execInContainer(
+                "/opt/kafka/bin/kafka-topics.sh",
+                "--bootstrap-server",
+                kafka.hostDockerInternalBootstrapServers(),
+                "--list");
+        assertEquals(0, result.getExitCode(), result.getStderr());
+        assertTrue(result.getStdout().contains(topic));
+      }
+    }
+    kafka.close();
+    assertFalse(kafka.isRunning());
+    assertThrows(IllegalStateException.class, kafka::start);
+    assertThrows(IllegalStateException.class, kafka::hostDockerInternalBootstrapServers);
+  }
+
+  @Test
+  void invalidNetworkNamesFailEarlyAndLegacyConfigurationKeepsListenerDisabled() {
+    var d = KafkaContainerConfiguration.defaults();
+    assertThrows(IllegalArgumentException.class, () -> d.withNetwork(" ", List.of("alias")));
+    assertThrows(IllegalArgumentException.class, () -> d.withNetwork("network", List.of(" ")));
+    var aliases = new java.util.ArrayList<>(List.of("alias"));
+    var config =
+        new KafkaContainerConfiguration(d.image(), java.util.Optional.of("network"), aliases);
+    aliases.clear();
+    assertEquals(List.of("alias"), config.networkAliases());
+    assertFalse(config.hostDockerInternalListenerEnabled());
+    assertTrue(config.toString().contains("alias"));
+    assertTrue(
+        config
+            .withHostDockerInternalListener()
+            .withNetwork("next", List.of("next-alias"))
+            .hostDockerInternalListenerEnabled());
   }
 }

@@ -16,7 +16,9 @@
  */
 package com.forwardmeasure.testcontainers.kubernetes;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,5 +53,72 @@ class KubernetesTestContainerTest {
       LOGGER.info("Confirming kubeConfigYaml() rejects a not-yet-started container");
       assertThrows(IllegalStateException.class, kubernetes::kubeConfigYaml);
     }
+  }
+
+  @Test
+  void importedImageRunsByDigestWithoutRegistryAccessAndClosureIsFinal() throws Exception {
+    // Ensure the source image exists locally without relying on prior tests in the reactor.
+    new org.testcontainers.images.RemoteDockerImage(
+            org.testcontainers.utility.DockerImageName.parse("alpine:3.17"))
+        .get();
+    var kubernetes = new KubernetesTestContainer();
+    try (kubernetes) {
+      kubernetes.start();
+      assertSame(kubernetes, kubernetes.start());
+      assertEquals(
+          KubernetesContainerConfiguration.DEFAULT_IMAGE, kubernetes.configuration().image());
+      var missing =
+          assertThrows(
+              IllegalStateException.class,
+              () ->
+                  kubernetes.loadImage(
+                      "forwardmeasure/missing-fixture:" + java.util.UUID.randomUUID()));
+      assertTrue(missing.getMessage().contains("docker save exited"), missing.getMessage());
+      String digest = kubernetes.loadImageAndPinDigest("alpine:3.17");
+      assertTrue(digest.matches("docker.io/library/alpine@sha256:[0-9a-f]{64}"), digest);
+      try (var client = kubernetes.createClient()) {
+        var pod =
+            new io.fabric8.kubernetes.api.model.PodBuilder()
+                .withNewMetadata()
+                .withName("digest-contract")
+                .endMetadata()
+                .withNewSpec()
+                .withRestartPolicy("Never")
+                .addNewContainer()
+                .withName("proof")
+                .withImage(digest)
+                .withImagePullPolicy("Never")
+                .withCommand("sh", "-c", "printf digest-contract-ok")
+                .endContainer()
+                .endSpec()
+                .build();
+        client.pods().inNamespace("default").resource(pod).create();
+        try {
+          var completed =
+              client
+                  .pods()
+                  .inNamespace("default")
+                  .withName("digest-contract")
+                  .waitUntilCondition(
+                      p ->
+                          p != null
+                              && p.getStatus() != null
+                              && ("Succeeded".equals(p.getStatus().getPhase())
+                                  || "Failed".equals(p.getStatus().getPhase())),
+                      90,
+                      java.util.concurrent.TimeUnit.SECONDS);
+          assertEquals("Succeeded", completed.getStatus().getPhase());
+          assertEquals(
+              "digest-contract-ok",
+              client.pods().inNamespace("default").withName("digest-contract").getLog());
+        } finally {
+          client.pods().inNamespace("default").withName("digest-contract").delete();
+        }
+      }
+    }
+    kubernetes.close();
+    assertFalse(kubernetes.isRunning());
+    assertThrows(IllegalStateException.class, kubernetes::start);
+    assertThrows(IllegalStateException.class, () -> kubernetes.loadImage("alpine:3.17"));
   }
 }

@@ -27,7 +27,6 @@
   <properties>
     <!-- Explicit pin: forwardmeasure-platform's core BOM manages the fabric8 docker-maven-plugin
     build plugin (fabric8.docker.version) but not the unrelated runtime Kubernetes API client. -->
-    <kubernetes.client.version>7.3.1</kubernetes.client.version>
   </properties>
   <dependencies>
     <dependency>
@@ -37,7 +36,6 @@
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>kubernetes-client</artifactId>
-      <version>${kubernetes.client.version}</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>

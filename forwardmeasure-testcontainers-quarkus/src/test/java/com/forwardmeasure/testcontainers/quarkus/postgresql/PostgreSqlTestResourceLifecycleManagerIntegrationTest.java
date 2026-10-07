@@ -17,6 +17,8 @@
 package com.forwardmeasure.testcontainers.quarkus.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
@@ -72,6 +74,85 @@ class PostgreSqlTestResourceLifecycleManagerIntegrationTest {
     } finally {
       LOGGER.info("Stopping lifecycle manager");
       manager.stop();
+    }
+  }
+
+  @WithPostgreSqlTestContainer(
+      databaseName = "network_contract",
+      useNetworkJdbcUrl = true,
+      networkAlias = "adapter-postgres",
+      datasourceNames = {"audit", "", " "})
+  static class NetworkConfiguration {}
+
+  @Test
+  void incompleteLifecycleConfigurationFailsBeforeStartingAContainer() {
+    var manager = new PostgreSqlTestResourceLifecycleManager();
+    manager.stop();
+    assertThrows(IllegalStateException.class, manager::start);
+    manager.init(NetworkConfiguration.class.getAnnotation(WithPostgreSqlTestContainer.class));
+    assertThrows(IllegalStateException.class, manager::start);
+    manager.stop();
+  }
+
+  @Test
+  void devServicesNetworkProducesUsableUrlsAndRemainsCallerOwned() throws Exception {
+    try (var network = org.testcontainers.containers.Network.newNetwork()) {
+      var manager = new PostgreSqlTestResourceLifecycleManager();
+      manager.init(NetworkConfiguration.class.getAnnotation(WithPostgreSqlTestContainer.class));
+      manager.setIntegrationTestContext(
+          new io.quarkus.test.common.DevServicesContext() {
+            public Map<String, String> devServicesProperties() {
+              return Map.of();
+            }
+
+            public java.util.Optional<String> containerNetworkId() {
+              return java.util.Optional.of(network.getId());
+            }
+          });
+      try {
+        var properties = manager.start();
+        assertEquals(
+            "jdbc:postgresql://adapter-postgres:5432/network_contract",
+            properties.get("quarkus.datasource.jdbc.url"));
+        assertEquals(
+            properties.get("quarkus.datasource.jdbc.url"),
+            properties.get("quarkus.datasource.\"audit\".jdbc.url"));
+        assertFalse(
+            properties.keySet().stream()
+                .anyMatch(key -> key.contains("\"\"") || key.contains("\" \"")));
+        assertThrows(UnsupportedOperationException.class, () -> properties.put("changed", "value"));
+        try (var client =
+            new org.testcontainers.containers.GenericContainer<>("postgres:18-alpine")
+                .withNetwork(network)
+                .withEnv("PGPASSWORD", properties.get("quarkus.datasource.password"))
+                .withCommand("sleep", "infinity")) {
+          client.start();
+          var result =
+              client.execInContainer(
+                  "psql",
+                  "-h",
+                  "adapter-postgres",
+                  "-U",
+                  properties.get("quarkus.datasource.username"),
+                  "-d",
+                  "network_contract",
+                  "-Atc",
+                  "SELECT current_database()");
+          assertEquals(0, result.getExitCode(), result.getStderr());
+          assertEquals("network_contract", result.getStdout().trim());
+        }
+      } finally {
+        manager.stop();
+        manager.stop();
+      }
+      assertEquals(
+          network.getId(),
+          org.testcontainers.DockerClientFactory.instance()
+              .client()
+              .inspectNetworkCmd()
+              .withNetworkId(network.getId())
+              .exec()
+              .getId());
     }
   }
 }

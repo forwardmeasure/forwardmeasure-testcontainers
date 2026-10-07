@@ -125,7 +125,10 @@ public final class KubernetesTestContainer implements AutoCloseable {
       } finally {
         Files.deleteIfExists(tar);
       }
-    } catch (IOException | InterruptedException failure) {
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted loading image " + image + " into K3s", failure);
+    } catch (IOException failure) {
       throw new IllegalStateException("Failed to load image " + image + " into K3s", failure);
     }
   }
@@ -150,17 +153,35 @@ public final class KubernetesTestContainer implements AutoCloseable {
    */
   public String loadImageAndPinDigest(String image) {
     loadImage(image);
+    return pinDigest(
+        image,
+        command -> {
+          var result = container.execInContainer(command);
+          return new ImageCommandResult(
+              result.getExitCode(), result.getStdout(), result.getStderr());
+        });
+  }
+
+  @FunctionalInterface
+  interface ImageCommand {
+    ImageCommandResult execute(String... command) throws IOException, InterruptedException;
+  }
+
+  record ImageCommandResult(int exitCode, String stdout, String stderr) {}
+
+  /** Command boundary shared by real containerd and deterministic failure-contract tests. */
+  static String pinDigest(String image, ImageCommand command) {
     try {
-      Container.ExecResult listed = container.execInContainer("ctr", "images", "ls");
-      if (listed.getExitCode() != 0) {
+      ImageCommandResult listed = command.execute("ctr", "images", "ls");
+      if (listed.exitCode() != 0) {
         throw new IllegalStateException(
-            "ctr images ls failed: " + listed.getStdout() + listed.getStderr());
+            "ctr images ls failed: " + listed.stdout() + listed.stderr());
       }
       String digest = null;
       String qualifiedRef = null;
-      for (String line : listed.getStdout().split("\n")) {
+      for (String line : listed.stdout().split("\n")) {
+        if (line.isBlank()) continue;
         String[] fields = line.trim().split("\\s+");
-        if (fields.length == 0) continue;
         String ref = fields[0];
         // ctr images ls's own REF column normalizes an unqualified name (this org's own
         // convention throughout - no explicit registry host) onto its fully-qualified docker.io
@@ -181,7 +202,7 @@ public final class KubernetesTestContainer implements AutoCloseable {
       }
       if (digest == null) {
         throw new IllegalStateException(
-            "Could not find " + image + "'s own manifest digest in: " + listed.getStdout());
+            "Could not find " + image + "'s own manifest digest in: " + listed.stdout());
       }
       String repository =
           qualifiedRef.contains("@")
@@ -193,18 +214,22 @@ public final class KubernetesTestContainer implements AutoCloseable {
         repository = repository.substring(0, lastColon);
       }
       String digestReference = repository + "@" + digest;
-      Container.ExecResult tagged =
-          container.execInContainer("ctr", "images", "tag", qualifiedRef, digestReference);
-      if (tagged.getExitCode() != 0) {
+      ImageCommandResult tagged =
+          command.execute("ctr", "images", "tag", qualifiedRef, digestReference);
+      if (tagged.exitCode() != 0) {
         throw new IllegalStateException(
             "ctr images tag failed for "
                 + digestReference
                 + ": "
-                + tagged.getStdout()
-                + tagged.getStderr());
+                + tagged.stdout()
+                + tagged.stderr());
       }
       return digestReference;
-    } catch (IOException | InterruptedException failure) {
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(
+          "Interrupted pinning a digest reference for " + image + " in K3s", failure);
+    } catch (IOException failure) {
       throw new IllegalStateException(
           "Failed to pin a digest reference for " + image + " in K3s", failure);
     }

@@ -16,7 +16,9 @@
  */
 package com.forwardmeasure.testcontainers.keycloak;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -58,6 +60,66 @@ class KeycloakTestContainerIntegrationTest {
       assertTrue(user.split("\\.").length >= 2);
       assertTrue(workload.split("\\.").length >= 2);
       assertNotEquals(user, workload);
+    }
+  }
+
+  @Test
+  void networkTokensUseTheIssuerDiscoverableBySiblingServices() throws Exception {
+    String realm;
+    try (var stream = getClass().getResourceAsStream("/keycloak-test-realm.json")) {
+      realm =
+          new String(
+              java.util.Objects.requireNonNull(stream).readAllBytes(), StandardCharsets.UTF_8);
+    }
+    try (var network = org.testcontainers.containers.Network.newNetwork();
+        var keycloak =
+            new KeycloakTestContainer("forwardmeasure-test", realm, network, "identity").start()) {
+      String token = keycloak.clientCredentialsToken("workload-test", "workload-test-secret");
+      String claims =
+          new String(
+              java.util.Base64.getUrlDecoder().decode(token.split("\\.")[1]),
+              StandardCharsets.UTF_8);
+      assertTrue(claims.contains("\"iss\":\"" + keycloak.networkIssuer() + "\""));
+      try (var client =
+          new org.testcontainers.containers.GenericContainer<>("alpine:3.17")
+              .withNetwork(network)
+              .withCommand("sleep", "infinity")) {
+        client.start();
+        var result = client.execInContainer("wget", "-qO-", keycloak.networkIssuer().toString());
+        assertEquals(0, result.getExitCode(), result.getStderr());
+        assertTrue(result.getStdout().contains("forwardmeasure-test"));
+      }
+      var denied =
+          assertThrows(
+              IllegalStateException.class,
+              () ->
+                  keycloak.passwordToken(
+                      "browser-test", "operator", "wrong&password=operator-password"));
+      assertTrue(denied.getMessage().contains("HTTP 400"), denied.getMessage());
+      assertTrue(denied.getMessage().contains("invalid_grant"), denied.getMessage());
+    }
+  }
+
+  @Test
+  void incompleteNetworkConfigurationAndUnavailableEndpointsFailEarly() {
+    try (var network = org.testcontainers.containers.Network.newNetwork()) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new KeycloakTestContainer("realm", "{}", network, null));
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new KeycloakTestContainer("realm", "{}", null, "alias"));
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new KeycloakTestContainer("realm", "{}", network, " "));
+    }
+    assertThrows(IllegalArgumentException.class, () -> new KeycloakTestContainer(" ", "{}"));
+    assertThrows(IllegalArgumentException.class, () -> new KeycloakTestContainer("realm", " "));
+    try (var keycloak = new KeycloakTestContainer("realm", "{}")) {
+      assertThrows(IllegalStateException.class, keycloak::issuer);
+      assertThrows(IllegalStateException.class, keycloak::networkIssuer);
+      assertThrows(
+          IllegalArgumentException.class, () -> keycloak.clientCredentialsToken(" ", "secret"));
     }
   }
 }
