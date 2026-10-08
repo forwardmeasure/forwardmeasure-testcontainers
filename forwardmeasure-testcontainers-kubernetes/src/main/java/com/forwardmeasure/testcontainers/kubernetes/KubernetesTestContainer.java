@@ -47,6 +47,19 @@ public final class KubernetesTestContainer implements AutoCloseable {
     this.container = new K3sContainer(configuration.image());
   }
 
+  /** Bind an external fixture read-only into the disposable node before startup. */
+  public synchronized KubernetesTestContainer withReadOnlyHostFile(Path source, String target) {
+    if (started || closed)
+      throw new IllegalStateException("Configure fixture mounts before starting the cluster");
+    if (!Files.isRegularFile(source))
+      throw new IllegalArgumentException("Fixture must be a regular file");
+    container.withFileSystemBind(
+        source.toAbsolutePath().toString(),
+        target,
+        org.testcontainers.containers.BindMode.READ_ONLY);
+    return this;
+  }
+
   public synchronized KubernetesTestContainer start() {
     if (closed) {
       throw new IllegalStateException("Kubernetes test container has been closed");
