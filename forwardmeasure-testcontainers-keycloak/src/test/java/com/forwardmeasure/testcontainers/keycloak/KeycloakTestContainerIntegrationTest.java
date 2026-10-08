@@ -17,6 +17,7 @@
 package com.forwardmeasure.testcontainers.keycloak;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -60,6 +61,16 @@ class KeycloakTestContainerIntegrationTest {
       assertTrue(user.split("\\.").length >= 2);
       assertTrue(workload.split("\\.").length >= 2);
       assertNotEquals(user, workload);
+      String alternate =
+          keycloak.passwordTokenWithAlternateIssuer(
+              "browser-test", "operator", "operator-password");
+      String normalClaims = decodedSegment(user, 1);
+      String alternateClaims = decodedSegment(alternate, 1);
+      String expectedIssuer = "\"iss\":\"" + keycloak.issuer() + "\"";
+      assertTrue(normalClaims.contains(expectedIssuer));
+      assertFalse(
+          alternateClaims.contains(expectedIssuer), "Issuer must change, not the signing key");
+      assertEquals(decodedSegment(user, 0), decodedSegment(alternate, 0));
     }
   }
 
@@ -80,6 +91,11 @@ class KeycloakTestContainerIntegrationTest {
               java.util.Base64.getUrlDecoder().decode(token.split("\\.")[1]),
               StandardCharsets.UTF_8);
       assertTrue(claims.contains("\"iss\":\"" + keycloak.networkIssuer() + "\""));
+      assertThrows(
+          IllegalStateException.class,
+          () ->
+              keycloak.passwordTokenWithAlternateIssuer(
+                  "browser-test", "operator", "operator-password"));
       try (var client =
           new org.testcontainers.containers.GenericContainer<>("alpine:3.17")
               .withNetwork(network)
@@ -121,5 +137,11 @@ class KeycloakTestContainerIntegrationTest {
       assertThrows(
           IllegalArgumentException.class, () -> keycloak.clientCredentialsToken(" ", "secret"));
     }
+  }
+
+  private static String decodedSegment(String token, int segment) {
+    return new String(
+        java.util.Base64.getUrlDecoder().decode(token.split("\\.")[segment]),
+        StandardCharsets.UTF_8);
   }
 }

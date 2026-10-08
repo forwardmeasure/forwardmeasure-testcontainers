@@ -127,7 +127,31 @@ public final class KeycloakTestContainer implements AutoCloseable {
   }
 
   public String passwordToken(String clientId, String username, String password) {
+    return passwordToken(issuer(), clientId, username, password);
+  }
+
+  /**
+   * Mints a genuine same-key token through the alternate loopback hostname for issuer-rejection
+   * contracts. Requires a local Docker host and an unpinned issuer (no caller-supplied network).
+   */
+  public String passwordTokenWithAlternateIssuer(
+      String clientId, String username, String password) {
+    URI expected = issuer();
+    if (networkAlias != null
+        || !("localhost".equals(expected.getHost()) || "127.0.0.1".equals(expected.getHost()))) {
+      throw new IllegalStateException(
+          "Alternate issuer requires an unpinned local Keycloak fixture");
+    }
+    String host = "localhost".equals(expected.getHost()) ? "127.0.0.1" : "localhost";
+    URI alternate =
+        URI.create(
+            expected.getScheme() + "://" + host + ":" + expected.getPort() + expected.getPath());
+    return passwordToken(alternate, clientId, username, password);
+  }
+
+  private String passwordToken(URI issuer, String clientId, String username, String password) {
     return token(
+        issuer,
         "grant_type=password&client_id="
             + encode(clientId)
             + "&username="
@@ -147,9 +171,13 @@ public final class KeycloakTestContainer implements AutoCloseable {
   }
 
   private String token(String body) {
+    return token(issuer(), body);
+  }
+
+  private String token(URI issuer, String body) {
     try {
       HttpRequest request =
-          HttpRequest.newBuilder(URI.create(issuer() + "/protocol/openid-connect/token"))
+          HttpRequest.newBuilder(URI.create(issuer + "/protocol/openid-connect/token"))
               .header("Content-Type", "application/x-www-form-urlencoded")
               .POST(HttpRequest.BodyPublishers.ofString(body))
               .build();
