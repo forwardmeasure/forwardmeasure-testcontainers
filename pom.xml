@@ -64,6 +64,7 @@
     <module>forwardmeasure-testcontainers-bom</module>
     <module>forwardmeasure-testcontainers-minio</module>
     <module>forwardmeasure-testcontainers-cassandra</module>
+    <module>forwardmeasure-testcontainers-valkey</module>
     <module>forwardmeasure-testcontainers-keycloak</module>
     <module>forwardmeasure-testcontainers-postgresql</module>
     <module>forwardmeasure-testcontainers-opensearch</module>
@@ -83,6 +84,11 @@
       <dependency>
         <groupId>${project.groupId}</groupId>
         <artifactId>forwardmeasure-testcontainers-cassandra</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>forwardmeasure-testcontainers-valkey</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
