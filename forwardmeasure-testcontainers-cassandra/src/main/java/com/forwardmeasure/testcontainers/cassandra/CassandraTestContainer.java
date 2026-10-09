@@ -36,6 +36,14 @@ public final class CassandraTestContainer implements AutoCloseable {
                 command -> command.getHostConfig().withMemory(2L * 1024 * 1024 * 1024));
   }
 
+  /** Attaches Cassandra to the caller's disposable network for real service-to-database traffic. */
+  public CassandraTestContainer(org.testcontainers.containers.Network network, String alias) {
+    this();
+    java.util.Objects.requireNonNull(network, "network");
+    if (alias == null || alias.isBlank()) throw new IllegalArgumentException("alias is required");
+    container.withNetwork(network).withNetworkAliases(alias);
+  }
+
   public synchronized CassandraTestContainer start() {
     if (closed) throw new IllegalStateException("Cassandra test container has been closed");
     if (!started) {
