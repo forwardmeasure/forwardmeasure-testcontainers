@@ -27,6 +27,10 @@ public final class OpenSearchTestContainer implements AutoCloseable {
 
   public static final int HTTP_PORT = 9200;
 
+  /** Explicit diagnostic override; unset leaves the image's JVM configuration unchanged. */
+  public static final String JVM_OPTIONS_PROPERTY =
+      "forwardmeasure.testcontainers.opensearch.jvm-options";
+
   private final OpenSearchContainerConfiguration configuration;
   private final OpenSearchContainer<?> container;
   private boolean started;
@@ -114,6 +118,10 @@ public final class OpenSearchTestContainer implements AutoCloseable {
     DockerImageName image =
         settings.image().asCompatibleSubstituteFor("opensearchproject/opensearch");
     OpenSearchContainer<?> configured = new OpenSearchContainer<>(image);
+    String javaOptions = System.getProperty(JVM_OPTIONS_PROPERTY);
+    if (javaOptions != null && !javaOptions.isBlank()) {
+      configured.withEnv("OPENSEARCH_JAVA_OPTS", javaOptions);
+    }
     if (settings.securityEnabled()) {
       configured.withSecurityEnabled();
     }

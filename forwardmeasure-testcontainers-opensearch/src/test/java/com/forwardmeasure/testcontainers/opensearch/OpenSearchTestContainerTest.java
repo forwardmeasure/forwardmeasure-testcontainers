@@ -29,6 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@org.junit.jupiter.api.parallel.ResourceLock(
+    org.junit.jupiter.api.parallel.Resources.SYSTEM_PROPERTIES)
 class OpenSearchTestContainerTest {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(OpenSearchTestContainerTest.class);
@@ -51,6 +53,31 @@ class OpenSearchTestContainerTest {
       assertTrue(response.statusCode() >= 200 && response.statusCode() < 300);
       assertFalse(openSearch.isSecurityEnabled());
       assertThrows(IllegalStateException.class, openSearch::networkEndpoint);
+    }
+  }
+
+  @Test
+  void explicitJvmOptionsReachTheRealOpenSearchProcess() throws Exception {
+    String property = OpenSearchTestContainer.JVM_OPTIONS_PROPERTY;
+    String previous = System.getProperty(property);
+    String marker = "-Dforwardmeasure.fixture.probe=enabled";
+    System.setProperty(property, (previous == null ? "" : previous + " ") + marker);
+    try (var search = new OpenSearchTestContainer().start();
+        var client = HttpClient.newHttpClient()) {
+      var response =
+          client.send(
+              HttpRequest.newBuilder(search.hostEndpoint().resolve("/_nodes/jvm"))
+                  .GET()
+                  .timeout(java.time.Duration.ofSeconds(30))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString());
+      assertEquals(200, response.statusCode());
+      assertTrue(
+          response.body().contains("\"" + marker + "\""),
+          "The running OpenSearch node must report the explicitly requested JVM property");
+    } finally {
+      if (previous == null) System.clearProperty(property);
+      else System.setProperty(property, previous);
     }
   }
 
