@@ -47,6 +47,17 @@ public final class KubernetesTestContainer implements AutoCloseable {
     this.container = new K3sContainer(configuration.image());
   }
 
+  /** Joins a caller-owned network so disposable pods can reach fixture infrastructure. */
+  public synchronized KubernetesTestContainer withNetwork(
+      org.testcontainers.containers.Network network, String alias) {
+    if (started || closed) throw new IllegalStateException("Configure network before startup");
+    Objects.requireNonNull(network, "network");
+    if (alias == null || alias.isBlank())
+      throw new IllegalArgumentException("A network alias is required");
+    container.withNetwork(network).withNetworkAliases(alias);
+    return this;
+  }
+
   /** Bind an external fixture read-only into the disposable node before startup. */
   public synchronized KubernetesTestContainer withReadOnlyHostFile(Path source, String target) {
     if (started || closed)

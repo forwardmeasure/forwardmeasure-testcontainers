@@ -47,6 +47,11 @@
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>
+        <artifactId>forwardmeasure-testcontainers-gcs</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
         <artifactId>forwardmeasure-testcontainers-minio</artifactId>
         <version>${project.version}</version>
       </dependency>
