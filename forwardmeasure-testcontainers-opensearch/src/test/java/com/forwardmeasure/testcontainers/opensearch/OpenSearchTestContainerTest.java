@@ -57,6 +57,75 @@ class OpenSearchTestContainerTest {
   }
 
   @Test
+  void aSecuredContainerIsVerifiedByItsOwnCaAndRequiresItsCredentials() throws Exception {
+    try (var openSearch =
+        new OpenSearchTestContainer(
+                OpenSearchContainerConfiguration.defaults().withSecurityEnabled())
+            .start()) {
+      assertTrue(openSearch.isSecurityEnabled());
+      assertEquals("https", openSearch.hostEndpoint().getScheme());
+      var certificates =
+          java.security.cert.CertificateFactory.getInstance("X.509")
+              .generateCertificates(
+                  new java.io.ByteArrayInputStream(
+                      openSearch
+                          .certificateAuthorityPem()
+                          .getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+      var store = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType());
+      store.load(null, null);
+      int index = 0;
+      for (var certificate : certificates) store.setCertificateEntry("ca-" + index++, certificate);
+      var trust =
+          javax.net.ssl.TrustManagerFactory.getInstance(
+              javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+      trust.init(store);
+      var tls = javax.net.ssl.SSLContext.getInstance("TLS");
+      tls.init(null, trust.getTrustManagers(), null);
+      var health = openSearch.hostEndpoint().resolve("/_cluster/health");
+      String basic =
+          "Basic "
+              + java.util.Base64.getEncoder()
+                  .encodeToString(
+                      (openSearch.username() + ":" + openSearch.password())
+                          .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      try (var client = HttpClient.newBuilder().sslContext(tls).build()) {
+        // Verified against the container's own CA, hostname included: credentials get in...
+        assertEquals(
+            200,
+            client
+                .send(
+                    HttpRequest.newBuilder(health).header("Authorization", basic).GET().build(),
+                    HttpResponse.BodyHandlers.discarding())
+                .statusCode());
+        // ...and without them the security plugin refuses.
+        assertEquals(
+            401,
+            client
+                .send(
+                    HttpRequest.newBuilder(health).GET().build(),
+                    HttpResponse.BodyHandlers.discarding())
+                .statusCode());
+      }
+      // The JVM's default trust does not know the demo CA.
+      try (var untrusting = HttpClient.newHttpClient()) {
+        assertThrows(
+            javax.net.ssl.SSLHandshakeException.class,
+            () ->
+                untrusting.send(
+                    HttpRequest.newBuilder(health).GET().build(),
+                    HttpResponse.BodyHandlers.discarding()));
+      }
+    }
+  }
+
+  @Test
+  void anUnsecuredContainerHasNoCa() {
+    try (var openSearch = new OpenSearchTestContainer().start()) {
+      assertThrows(IllegalStateException.class, openSearch::certificateAuthorityPem);
+    }
+  }
+
+  @Test
   void explicitJvmOptionsReachTheRealOpenSearchProcess() throws Exception {
     String property = OpenSearchTestContainer.JVM_OPTIONS_PROPERTY;
     String previous = System.getProperty(property);

@@ -139,6 +139,56 @@ class KeycloakTestContainerIntegrationTest {
     }
   }
 
+  @Test
+  void explicitJvmOptionsReachTheRealKeycloakProcess() throws Exception {
+    assumeTrue(DockerClientFactory.instance().isDockerAvailable());
+    String realm;
+    try (var stream = getClass().getResourceAsStream("/keycloak-test-realm.json")) {
+      if (stream == null) {
+        throw new IllegalStateException("Missing Keycloak test realm");
+      }
+      realm = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+    }
+    String property = KeycloakTestContainer.JVM_OPTIONS_PROPERTY;
+    String previous = System.getProperty(property);
+    // The server reports its JVM's user.timezone in the admin server-info system section.
+    System.setProperty(property, "-Duser.timezone=Pacific/Chatham");
+    try (var keycloak = new KeycloakTestContainer("forwardmeasure-test", realm).start();
+        var http = java.net.http.HttpClient.newHttpClient()) {
+      String base = keycloak.issuer().toString().replace("/realms/forwardmeasure-test", "");
+      var tokenResponse =
+          http.send(
+              java.net.http.HttpRequest.newBuilder(
+                      java.net.URI.create(base + "/realms/master/protocol/openid-connect/token"))
+                  .header("Content-Type", "application/x-www-form-urlencoded")
+                  .POST(
+                      java.net.http.HttpRequest.BodyPublishers.ofString(
+                          "grant_type=password&client_id=admin-cli&username=admin"
+                              + "&password=admin-integration-only"))
+                  .build(),
+              java.net.http.HttpResponse.BodyHandlers.ofString());
+      assertEquals(200, tokenResponse.statusCode());
+      var token =
+          java.util.regex.Pattern.compile("\"access_token\"\\s*:\\s*\"([^\"]+)\"")
+              .matcher(tokenResponse.body());
+      assertTrue(token.find());
+      var serverInfo =
+          http.send(
+              java.net.http.HttpRequest.newBuilder(java.net.URI.create(base + "/admin/serverinfo"))
+                  .header("Authorization", "Bearer " + token.group(1))
+                  .GET()
+                  .build(),
+              java.net.http.HttpResponse.BodyHandlers.ofString());
+      assertEquals(200, serverInfo.statusCode());
+      assertTrue(
+          serverInfo.body().contains("\"userTimezone\":\"Pacific/Chatham\""),
+          "The running Keycloak JVM must report the explicitly requested option");
+    } finally {
+      if (previous == null) System.clearProperty(property);
+      else System.setProperty(property, previous);
+    }
+  }
+
   private static String decodedSegment(String token, int segment) {
     return new String(
         java.util.Base64.getUrlDecoder().decode(token.split("\\.")[segment]),

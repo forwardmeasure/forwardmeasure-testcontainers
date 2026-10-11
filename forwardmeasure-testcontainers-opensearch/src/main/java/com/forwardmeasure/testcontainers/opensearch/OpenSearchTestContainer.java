@@ -92,6 +92,21 @@ public final class OpenSearchTestContainer implements AutoCloseable {
     return container.getPassword();
   }
 
+  /**
+   * The root CA (PEM) that signed a security-enabled container's node certificate - the demo CA the
+   * image generates, whose node certificate names {@code localhost} - so a client can verify the
+   * {@code https} endpoint instead of trusting everything.
+   */
+  public String certificateAuthorityPem() {
+    ensureStarted();
+    if (!container.isSecurityEnabled()) {
+      throw new IllegalStateException("The OpenSearch container runs without security, so no CA");
+    }
+    return container.copyFileFromContainer(
+        "/usr/share/opensearch/config/root-ca.pem",
+        input -> new String(input.readAllBytes(), java.nio.charset.StandardCharsets.US_ASCII));
+  }
+
   public String containerName() {
     ensureStarted();
     return container.getContainerName();

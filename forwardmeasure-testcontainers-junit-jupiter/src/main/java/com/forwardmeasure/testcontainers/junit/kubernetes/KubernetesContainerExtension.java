@@ -41,7 +41,11 @@ public final class KubernetesContainerExtension
         annotation == null
             ? KubernetesContainerConfiguration.defaults()
             : new KubernetesContainerConfiguration(DockerImageName.parse(annotation.image()));
-    KubernetesTestContainer container = new KubernetesTestContainer(configuration).start();
+    KubernetesTestContainer container = new KubernetesTestContainer(configuration);
+    if (annotation != null && annotation.jacocoImagePrefixes().length > 0) {
+      container.withJacocoCoverage(annotation.jacocoImagePrefixes());
+    }
+    container.start();
     store(context).put(key(context), container);
   }
 

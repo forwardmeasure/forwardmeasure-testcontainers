@@ -36,6 +36,10 @@ import org.testcontainers.utility.DockerImageName;
 /** A real Keycloak fixture importing a caller-supplied realm definition. */
 public final class KeycloakTestContainer implements AutoCloseable {
 
+  /** Explicit diagnostic override; unset leaves the image's JVM configuration unchanged. */
+  public static final String JVM_OPTIONS_PROPERTY =
+      "forwardmeasure.testcontainers.keycloak.jvm-options";
+
   private static final DockerImageName IMAGE = DockerImageName.parse(image());
 
   private static final Pattern ACCESS_TOKEN =
@@ -90,6 +94,11 @@ public final class KeycloakTestContainer implements AutoCloseable {
                 Wait.forHttp("/realms/" + this.realm)
                     .forStatusCode(200)
                     .withStartupTimeout(Duration.ofMinutes(3)));
+    String javaOptions = System.getProperty(JVM_OPTIONS_PROPERTY);
+    if (javaOptions != null && !javaOptions.isBlank()) {
+      // kc.sh appends JAVA_OPTS_APPEND to the server JVM's own options.
+      container.withEnv("JAVA_OPTS_APPEND", javaOptions);
+    }
     if (network != null) {
       container
           .withNetwork(network)

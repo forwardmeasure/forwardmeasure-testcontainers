@@ -29,4 +29,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 public @interface WithKubernetesContainer {
 
   String image() default "rancher/k3s:v1.36.4-k3s1";
+
+  /**
+   * Image prefixes whose pods get the JaCoCo agent under the platform's coverage profile (see
+   * {@code KubernetesTestContainer#withJacocoCoverage}); empty records nothing.
+   */
+  String[] jacocoImagePrefixes() default {};
 }

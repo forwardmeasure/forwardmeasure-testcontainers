@@ -22,6 +22,7 @@ import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import org.testcontainers.containers.Container;
 import org.testcontainers.k3s.K3sContainer;
@@ -30,13 +31,39 @@ import org.testcontainers.utility.MountableFile;
 /** Explicitly owned single-node K3s Testcontainer with a real Kubernetes API server. */
 public final class KubernetesTestContainer implements AutoCloseable {
 
+  /**
+   * Absolute path of the JaCoCo runtime agent jar. Set by the platform's {@code coverage} profile;
+   * when absent, {@link #withJacocoCoverage} is a no-op.
+   */
+  public static final String JACOCO_AGENT_PROPERTY = "forwardmeasure.testcontainers.jacoco.agent";
+
+  /** Execution-data file the cluster's coverage is appended to (the module's jacoco.exec). */
+  public static final String JACOCO_OUTPUT_PROPERTY = "forwardmeasure.testcontainers.jacoco.output";
+
+  /** Label the coverage policy puts on every pod it injects the agent into. */
+  public static final String JACOCO_POD_LABEL = "forwardmeasure.io/jacoco";
+
+  static final String COVERAGE_NODE_PATH = "/var/lib/forwardmeasure/coverage";
+
+  private static final String COVERAGE_VOLUME = "forwardmeasure-jacoco";
+
+  private static final List<String> SYSTEM_NAMESPACES =
+      List.of("kube-system", "kube-public", "kube-node-lease");
+
   private final KubernetesContainerConfiguration configuration;
 
   private final K3sContainer container;
 
+  private JacocoCoverage coverage;
+
+  private boolean coverageCollected;
+
   private boolean started;
 
   private boolean closed;
+
+  /** Agent jar, destination file and the image prefixes whose pods get the agent. */
+  record JacocoCoverage(Path agent, Path output, List<String> imagePrefixes) {}
 
   public KubernetesTestContainer() {
     this(KubernetesContainerConfiguration.defaults());
@@ -58,6 +85,14 @@ public final class KubernetesTestContainer implements AutoCloseable {
     return this;
   }
 
+  /** Streams the K3s server's own output, e.g. into an SLF4J logger. */
+  public synchronized KubernetesTestContainer withLogConsumer(
+      java.util.function.Consumer<org.testcontainers.containers.output.OutputFrame> consumer) {
+    if (started || closed) throw new IllegalStateException("Configure logging before startup");
+    container.withLogConsumer(Objects.requireNonNull(consumer, "consumer"));
+    return this;
+  }
+
   /** Bind an external fixture read-only into the disposable node before startup. */
   public synchronized KubernetesTestContainer withReadOnlyHostFile(Path source, String target) {
     if (started || closed)
@@ -71,6 +106,38 @@ public final class KubernetesTestContainer implements AutoCloseable {
     return this;
   }
 
+  /**
+   * Records JaCoCo coverage from every JVM this cluster runs out of an image starting with one of
+   * {@code imagePrefixes} - Deployments and the Jobs a workflow engine dispatches alike. A
+   * MutatingAdmissionPolicy adds the agent to each matching container as its pod is created, so
+   * nothing in the product's manifests or workflows changes. Each JVM appends to one execution-data
+   * file on the node when it exits; {@link #collectJacocoCoverage()} (or {@link #close()}) stops
+   * every workload gracefully and appends that file to {@link #JACOCO_OUTPUT_PROPERTY}.
+   *
+   * <p>Opt-in: without {@link #JACOCO_AGENT_PROPERTY} (set by the platform's {@code coverage}
+   * profile) this does nothing.
+   */
+  public synchronized KubernetesTestContainer withJacocoCoverage(String... imagePrefixes) {
+    if (started || closed)
+      throw new IllegalStateException("Configure coverage before starting the cluster");
+    String agent = System.getProperty(JACOCO_AGENT_PROPERTY, "");
+    if (agent.isBlank()) return this;
+    Path agentJar = Path.of(agent);
+    if (!Files.isRegularFile(agentJar))
+      throw new IllegalArgumentException("JaCoCo agent is not a regular file: " + agentJar);
+    String output = System.getProperty(JACOCO_OUTPUT_PROPERTY, "");
+    if (output.isBlank())
+      throw new IllegalArgumentException(JACOCO_OUTPUT_PROPERTY + " is required with the agent");
+    if (imagePrefixes.length == 0)
+      throw new IllegalArgumentException("At least one image prefix is required");
+    for (String prefix : imagePrefixes) {
+      if (prefix == null || prefix.isBlank() || prefix.contains("'"))
+        throw new IllegalArgumentException("Invalid image prefix: " + prefix);
+    }
+    coverage = new JacocoCoverage(agentJar, Path.of(output), List.of(imagePrefixes));
+    return this;
+  }
+
   public synchronized KubernetesTestContainer start() {
     if (closed) {
       throw new IllegalStateException("Kubernetes test container has been closed");
@@ -79,13 +146,230 @@ public final class KubernetesTestContainer implements AutoCloseable {
       try {
         container.start();
         started = true;
+        if (coverage != null) installCoveragePolicy();
       } catch (RuntimeException | Error failure) {
         container.close();
+        started = false;
         closed = true;
         throw failure;
       }
     }
     return this;
+  }
+
+  /**
+   * Stops every workload outside the system namespaces gracefully - so each injected JVM's shutdown
+   * hook writes its execution data - and appends the recorded data to the output file. Fails when
+   * injected pods ran but nothing was recorded: coverage that was asked for but silently missing is
+   * a bug. A cluster that never ran a matching pod has nothing to collect. Idempotent; {@link
+   * #close()} calls it when the test did not.
+   */
+  public synchronized void collectJacocoCoverage() {
+    if (coverage == null || coverageCollected) return;
+    ensureStarted();
+    coverageCollected = true;
+    String injectedPods =
+        kubectl("get", "pods", "-A", "-l", JACOCO_POD_LABEL + "=injected", "-o", "name").trim();
+    String namespaces = kubectl("get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}");
+    for (String namespace : namespaces.trim().split("\\s+")) {
+      if (namespace.isBlank() || SYSTEM_NAMESPACES.contains(namespace)) continue;
+      kubectl(
+          "delete",
+          "deployments,statefulsets,daemonsets,replicasets,jobs",
+          "--all",
+          "-n",
+          namespace,
+          "--wait=true",
+          "--timeout=180s");
+    }
+    kubectl(
+        "delete",
+        "pods",
+        "-A",
+        "-l",
+        JACOCO_POD_LABEL + "=injected",
+        "--wait=true",
+        "--timeout=180s");
+    try {
+      byte[] recorded =
+          container.copyFileFromContainer(
+              COVERAGE_NODE_PATH + "/jacoco.exec", java.io.InputStream::readAllBytes);
+      if (recorded.length == 0) {
+        if (injectedPods.isEmpty()) return;
+        throw new IllegalStateException(
+            "Injected pods ran but no JVM recorded coverage: " + injectedPods);
+      }
+      Path output = coverage.output().toAbsolutePath();
+      Files.createDirectories(output.getParent());
+      Files.write(
+          output,
+          recorded,
+          java.nio.file.StandardOpenOption.CREATE,
+          java.nio.file.StandardOpenOption.APPEND);
+    } catch (IOException failure) {
+      throw new IllegalStateException("Failed to collect the cluster's JaCoCo coverage", failure);
+    }
+  }
+
+  private void installCoveragePolicy() {
+    try {
+      Container.ExecResult prepared =
+          container.execInContainer(
+              "sh",
+              "-c",
+              "mkdir -p "
+                  + COVERAGE_NODE_PATH
+                  + " && touch "
+                  + COVERAGE_NODE_PATH
+                  + "/jacoco.exec && chmod 0777 "
+                  + COVERAGE_NODE_PATH
+                  + " && chmod 0666 "
+                  + COVERAGE_NODE_PATH
+                  + "/jacoco.exec");
+      if (prepared.getExitCode() != 0)
+        throw new IllegalStateException("Preparing the coverage directory failed: " + prepared);
+      container.copyFileToContainer(
+          MountableFile.forHostPath(coverage.agent(), 0644),
+          COVERAGE_NODE_PATH + "/jacocoagent.jar");
+      Path policy = Files.createTempFile("k3s-jacoco-policy", ".yaml");
+      try {
+        Files.writeString(policy, coveragePolicy(coverage.imagePrefixes()));
+        container.copyFileToContainer(
+            MountableFile.forHostPath(policy), "/tmp/forwardmeasure-jacoco-policy.yaml");
+      } finally {
+        Files.deleteIfExists(policy);
+      }
+      kubectl("apply", "-f", "/tmp/forwardmeasure-jacoco-policy.yaml");
+      awaitCoveragePolicyActive(coverage.imagePrefixes().get(0));
+    } catch (IOException failure) {
+      throw new IllegalStateException("Failed to install the JaCoCo coverage policy", failure);
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted installing the coverage policy", failure);
+    }
+  }
+
+  /**
+   * Admission policies load asynchronously; a server-side dry run proves this one now rewrites a
+   * matching pod before any workload is created.
+   */
+  private void awaitCoveragePolicyActive(String imagePrefix) throws InterruptedException {
+    // A prefix may already reach into the tag ("eclipse-temurin:"); complete whichever part it ends
+    // in so the probe is a valid reference that still matches.
+    String probeImage =
+        imagePrefix + (imagePrefix.contains(":") ? "coverage-probe" : "coverage-probe:0");
+    long deadline = System.nanoTime() + java.time.Duration.ofSeconds(60).toNanos();
+    String lastSeen = "";
+    while (System.nanoTime() < deadline) {
+      lastSeen =
+          kubectl(
+              "run",
+              "forwardmeasure-jacoco-probe",
+              "--image=" + probeImage,
+              "--restart=Never",
+              "--dry-run=server",
+              "--env=JAVA_TOOL_OPTIONS=-Xmx64m",
+              "-o",
+              "jsonpath={.metadata.labels}{' '}{.spec.containers[0].env}");
+      if (lastSeen.contains("injected") && lastSeen.contains("-Xmx64m -javaagent:")) return;
+      Thread.sleep(1_000);
+    }
+    throw new IllegalStateException(
+        "The JaCoCo coverage policy never took effect; last dry-run pod: " + lastSeen);
+  }
+
+  /** The MutatingAdmissionPolicy and binding that add the agent to matching containers. */
+  static String coveragePolicy(List<String> imagePrefixes) {
+    String prefixes =
+        imagePrefixes.stream()
+            .map(prefix -> "'" + prefix + "'")
+            .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
+    String matches =
+        "(c, "
+            + prefixes
+            + ".exists(p, c.image.startsWith(p) || c.image.startsWith('docker.io/' + p)))";
+    String agent =
+        "-javaagent:"
+            + COVERAGE_NODE_PATH
+            + "/jacocoagent.jar=destfile="
+            + COVERAGE_NODE_PATH
+            + "/jacoco.exec,append=true,includes=com.forwardmeasure.*";
+    return """
+    apiVersion: admissionregistration.k8s.io/v1
+    kind: MutatingAdmissionPolicy
+    metadata:
+      name: forwardmeasure-jacoco
+    spec:
+      matchConstraints:
+        resourceRules:
+          - apiGroups: [""]
+            apiVersions: ["v1"]
+            operations: ["CREATE"]
+            resources: ["pods"]
+      matchConditions:
+        - name: forwardmeasure-image
+          expression: "object.spec.containers.exists%1$s"
+      failurePolicy: Fail
+      reinvocationPolicy: Never
+      mutations:
+        - patchType: ApplyConfiguration
+          applyConfiguration:
+            expression: >
+              Object{
+                metadata: Object.metadata{labels: {"%2$s": "injected"}},
+                spec: Object.spec{
+                  volumes: [Object.spec.volumes{
+                    name: "%3$s",
+                    hostPath: Object.spec.volumes.hostPath{path: "%4$s", type: "Directory"}
+                  }],
+                  containers: object.spec.containers.filter%1$s.map(c,
+                    Object.spec.containers{
+                      name: c.name,
+                      volumeMounts: [Object.spec.containers.volumeMounts{
+                        name: "%3$s", mountPath: "%4$s"
+                      }],
+                      env: [Object.spec.containers.env{
+                        name: "JAVA_TOOL_OPTIONS",
+                        value: (has(c.env)
+                            ? c.env.filter(e, e.name == "JAVA_TOOL_OPTIONS" && has(e.value))
+                                .map(e, e.value + " ").join("")
+                            : "") + "%5$s"
+                      }]
+                    })
+                }
+              }
+    ---
+    apiVersion: admissionregistration.k8s.io/v1
+    kind: MutatingAdmissionPolicyBinding
+    metadata:
+      name: forwardmeasure-jacoco
+    spec:
+      policyName: forwardmeasure-jacoco
+    """
+        .formatted(matches, JACOCO_POD_LABEL, COVERAGE_VOLUME, COVERAGE_NODE_PATH, agent);
+  }
+
+  private String kubectl(String... args) {
+    String[] command = new String[args.length + 1];
+    command[0] = "kubectl";
+    System.arraycopy(args, 0, command, 1, args.length);
+    try {
+      Container.ExecResult result = container.execInContainer(command);
+      if (result.getExitCode() != 0)
+        throw new IllegalStateException(
+            String.join(" ", command)
+                + " exited "
+                + result.getExitCode()
+                + ": "
+                + result.getStdout()
+                + result.getStderr());
+      return result.getStdout();
+    } catch (IOException failure) {
+      throw new IllegalStateException(String.join(" ", command) + " failed", failure);
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(String.join(" ", command) + " interrupted", failure);
+    }
   }
 
   /** The raw kubeconfig YAML for the running cluster, reachable from the test host. */
@@ -262,9 +546,13 @@ public final class KubernetesTestContainer implements AutoCloseable {
   @Override
   public synchronized void close() {
     if (!closed) {
-      container.close();
-      started = false;
-      closed = true;
+      try {
+        if (isRunning()) collectJacocoCoverage();
+      } finally {
+        container.close();
+        started = false;
+        closed = true;
+      }
     }
   }
 

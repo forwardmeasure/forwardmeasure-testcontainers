@@ -76,6 +76,12 @@ public record OpenSearchContainerConfiguration(
         DEFAULT_MEMORY_SWAP_BYTES);
   }
 
+  /** The security plugin on: basic auth over https, with the image's demo certificates. */
+  public OpenSearchContainerConfiguration withSecurityEnabled() {
+    return new OpenSearchContainerConfiguration(
+        image, true, networkId, networkAliases, memoryBytes, memorySwapBytes);
+  }
+
   public OpenSearchContainerConfiguration withNetwork(String networkId, List<String> aliases) {
     return new OpenSearchContainerConfiguration(
         image, securityEnabled, Optional.of(networkId), aliases, memoryBytes, memorySwapBytes);
