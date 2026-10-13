@@ -145,17 +145,23 @@ public final class KeycloakTestContainer implements AutoCloseable {
    */
   public String passwordTokenWithAlternateIssuer(
       String clientId, String username, String password) {
-    URI expected = issuer();
-    if (networkAlias != null
+    return passwordToken(
+        alternateIssuer(issuer(), networkAlias != null), clientId, username, password);
+  }
+
+  /**
+   * {@code expected} through the other loopback name - the same server and signing key under a
+   * different {@code iss}. Only an unpinned (non-network) fixture on a local Docker host has one.
+   */
+  static URI alternateIssuer(URI expected, boolean networked) {
+    if (networked
         || !("localhost".equals(expected.getHost()) || "127.0.0.1".equals(expected.getHost()))) {
       throw new IllegalStateException(
           "Alternate issuer requires an unpinned local Keycloak fixture");
     }
     String host = "localhost".equals(expected.getHost()) ? "127.0.0.1" : "localhost";
-    URI alternate =
-        URI.create(
-            expected.getScheme() + "://" + host + ":" + expected.getPort() + expected.getPath());
-    return passwordToken(alternate, clientId, username, password);
+    return URI.create(
+        expected.getScheme() + "://" + host + ":" + expected.getPort() + expected.getPath());
   }
 
   private String passwordToken(URI issuer, String clientId, String username, String password) {
