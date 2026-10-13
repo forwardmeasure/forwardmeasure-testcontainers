@@ -36,6 +36,15 @@ class KubernetesTestContainerTest {
       LOGGER.info("Started K3s cluster");
       assertTrue(kubernetes.isRunning());
       assertFalse(kubernetes.kubeConfigYaml().isBlank());
+      // Configuration belongs before startup; a running cluster refuses it.
+      try (var network = org.testcontainers.containers.Network.newNetwork()) {
+        assertThrows(IllegalStateException.class, () -> kubernetes.withNetwork(network, "k3s"));
+      }
+      assertThrows(IllegalStateException.class, () -> kubernetes.withLogConsumer(frame -> {}));
+      assertThrows(
+          IllegalStateException.class,
+          () -> kubernetes.withReadOnlyHostFile(java.nio.file.Path.of("/etc/hostname"), "/x"));
+      assertThrows(IllegalStateException.class, () -> kubernetes.withJacocoCoverage("app:"));
 
       try (var client = kubernetes.createClient()) {
         var namespaces = client.namespaces().list().getItems();
