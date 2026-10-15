@@ -93,6 +93,50 @@ class CassandraTestContainerTest {
   }
 
   @Test
+  void passwordAuthenticationAdmitsTheSuperuserAndEnforcesGrants() {
+    try (var cassandra = new CassandraTestContainer().withPasswordAuthentication().start()) {
+      assertThrows(IllegalStateException.class, cassandra::withPasswordAuthentication);
+      // Without credentials the cluster refuses the session.
+      assertThrows(
+          com.datastax.oss.driver.api.core.AllNodesFailedException.class,
+          () ->
+              CqlSession.builder()
+                  .addContactPoint(cassandra.contactPoint())
+                  .withLocalDatacenter(cassandra.localDatacenter())
+                  .build()
+                  .close());
+      try (var admin =
+          CqlSession.builder()
+              .addContactPoint(cassandra.contactPoint())
+              .withLocalDatacenter(cassandra.localDatacenter())
+              .withAuthCredentials(cassandra.superuserName(), cassandra.superuserPassword())
+              .build()) {
+        admin.execute(
+            "CREATE KEYSPACE granted WITH replication = {'class': 'SimpleStrategy',"
+                + " 'replication_factor': 1}");
+        admin.execute(
+            "CREATE KEYSPACE withheld WITH replication = {'class': 'SimpleStrategy',"
+                + " 'replication_factor': 1}");
+        admin.execute("CREATE TABLE granted.probe (id text PRIMARY KEY)");
+        admin.execute("CREATE TABLE withheld.probe (id text PRIMARY KEY)");
+        admin.execute("CREATE ROLE runtime WITH PASSWORD = 'runtime' AND LOGIN = true");
+        admin.execute("GRANT ALL PERMISSIONS ON KEYSPACE granted TO runtime");
+      }
+      try (var runtime =
+          CqlSession.builder()
+              .addContactPoint(cassandra.contactPoint())
+              .withLocalDatacenter(cassandra.localDatacenter())
+              .withAuthCredentials("runtime", "runtime")
+              .build()) {
+        runtime.execute("INSERT INTO granted.probe (id) VALUES ('ok')");
+        assertThrows(
+            com.datastax.oss.driver.api.core.servererrors.UnauthorizedException.class,
+            () -> runtime.execute("INSERT INTO withheld.probe (id) VALUES ('no')"));
+      }
+    }
+  }
+
+  @Test
   void aNetworkedFixtureNeedsANetworkAndAnAlias() {
     try (Network network = Network.newNetwork()) {
       assertThrows(NullPointerException.class, () -> new CassandraTestContainer(null, "alias"));

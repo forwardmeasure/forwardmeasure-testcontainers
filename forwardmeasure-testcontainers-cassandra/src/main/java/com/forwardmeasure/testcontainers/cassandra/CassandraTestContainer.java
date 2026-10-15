@@ -44,6 +44,35 @@ public final class CassandraTestContainer implements AutoCloseable {
     container.withNetwork(network).withNetworkAliases(alias);
   }
 
+  /**
+   * Turns on Cassandra's own password authentication and role-based authorization (as k8ssandra
+   * clusters run), with the default {@code cassandra}/{@code cassandra} superuser - for contracts
+   * that create roles and grant them keyspaces. Call before {@link #start()}.
+   */
+  public synchronized CassandraTestContainer withPasswordAuthentication() {
+    if (started || closed)
+      throw new IllegalStateException("Authentication must be configured before start");
+    container.withCreateContainerCmdModifier(
+        command ->
+            command
+                .withEntrypoint("sh", "-c")
+                .withCmd(
+                    "sed -i -e 's/AllowAllAuthenticator/PasswordAuthenticator/'"
+                        + " -e 's/AllowAllAuthorizer/CassandraAuthorizer/'"
+                        + " /etc/cassandra/cassandra.yaml"
+                        + " && exec docker-entrypoint.sh cassandra -f"));
+    return this;
+  }
+
+  /** The superuser {@link #withPasswordAuthentication()} clusters start with. */
+  public String superuserName() {
+    return container.getUsername();
+  }
+
+  public String superuserPassword() {
+    return container.getPassword();
+  }
+
   public synchronized CassandraTestContainer start() {
     if (closed) throw new IllegalStateException("Cassandra test container has been closed");
     if (!started) {
