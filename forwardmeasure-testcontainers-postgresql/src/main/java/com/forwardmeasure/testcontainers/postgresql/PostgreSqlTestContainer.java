@@ -43,6 +43,27 @@ public final class PostgreSqlTestContainer implements AutoCloseable {
     this.container = configure(configuration);
   }
 
+  /** Apply real PostgreSQL startup settings before the owned container is started. */
+  public synchronized PostgreSqlTestContainer withServerParameters(
+      java.util.Map<String, String> parameters) {
+    if (started || closed)
+      throw new IllegalStateException("PostgreSQL settings belong before startup");
+    Objects.requireNonNull(parameters, "parameters");
+    var command = new java.util.ArrayList<String>();
+    command.add("postgres");
+    for (var setting : new java.util.TreeMap<>(parameters).entrySet()) {
+      if (!setting.getKey().matches("[a-z][a-z0-9_]{0,62}")
+          || setting.getValue() == null
+          || setting.getValue().isBlank()
+          || setting.getValue().length() > 200)
+        throw new IllegalArgumentException("Invalid PostgreSQL startup setting");
+      command.add("-c");
+      command.add(setting.getKey() + "=" + setting.getValue());
+    }
+    container.withCommand(command.toArray(String[]::new));
+    return this;
+  }
+
   public synchronized PostgreSqlTestContainer start() {
     if (closed) {
       throw new IllegalStateException("PostgreSQL test container has been closed");
