@@ -58,12 +58,17 @@ class OpenSearchTestContainerTest {
 
   @Test
   void aSecuredContainerIsVerifiedByItsOwnCaAndRequiresItsCredentials() throws Exception {
-    try (var openSearch =
-        new OpenSearchTestContainer(
-                OpenSearchContainerConfiguration.defaults().withSecurityEnabled())
-            .start()) {
+    try (var network = org.testcontainers.containers.Network.newNetwork();
+        var openSearch =
+            new OpenSearchTestContainer(
+                    OpenSearchContainerConfiguration.defaults()
+                        .withSecurityEnabled()
+                        .withNetwork(network.getId(), java.util.List.of("secure-search")))
+                .start()) {
       assertTrue(openSearch.isSecurityEnabled());
       assertEquals("https", openSearch.hostEndpoint().getScheme());
+      // Peers on the network must use TLS too: the security plugin serves nothing over http.
+      assertEquals(java.net.URI.create("https://secure-search:9200"), openSearch.networkEndpoint());
       var certificates =
           java.security.cert.CertificateFactory.getInstance("X.509")
               .generateCertificates(

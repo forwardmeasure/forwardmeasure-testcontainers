@@ -22,7 +22,14 @@ import org.opensearch.testcontainers.OpenSearchContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.utility.DockerImageName;
 
-/** Explicitly owned OpenSearch Testcontainer with host and network HTTP endpoints. */
+/**
+ * Explicitly owned OpenSearch Testcontainer with host and network HTTP endpoints.
+ *
+ * <p>A fixture is either owned by its creator, who must {@link #close()} it, or shared JVM-wide
+ * through {@link OpenSearchTestContainers#shared(OpenSearchContainerConfiguration)}. A shared
+ * fixture ignores {@link #close()} - no single test owns it - and is stopped by a JVM shutdown hook
+ * (and, failing that, by Testcontainers' Ryuk).
+ */
 public final class OpenSearchTestContainer implements AutoCloseable {
 
   public static final int HTTP_PORT = 9200;
@@ -33,8 +40,9 @@ public final class OpenSearchTestContainer implements AutoCloseable {
 
   private final OpenSearchContainerConfiguration configuration;
   private final OpenSearchContainer<?> container;
-  private boolean started;
-  private boolean closed;
+  private volatile boolean started;
+  private volatile boolean closed;
+  private volatile boolean shared;
 
   public OpenSearchTestContainer() {
     this(OpenSearchContainerConfiguration.defaults());
@@ -68,6 +76,10 @@ public final class OpenSearchTestContainer implements AutoCloseable {
     return URI.create(container.getHttpHostAddress());
   }
 
+  /**
+   * {@code scheme://alias:9200} for other containers on the configured network: the first network
+   * alias, and {@code https} when security is enabled (the security plugin serves only TLS).
+   */
   public URI networkEndpoint() {
     ensureStarted();
     String alias =
@@ -77,7 +89,8 @@ public final class OpenSearchTestContainer implements AutoCloseable {
                 () ->
                     new IllegalStateException(
                         "No OpenSearch container network alias is configured"));
-    return URI.create("http://" + alias + ':' + HTTP_PORT);
+    return URI.create(
+        (container.isSecurityEnabled() ? "https" : "http") + "://" + alias + ':' + HTTP_PORT);
   }
 
   public boolean isSecurityEnabled() {
@@ -120,8 +133,31 @@ public final class OpenSearchTestContainer implements AutoCloseable {
     return started && container.isRunning();
   }
 
+  /** Whether this fixture is a JVM-wide shared one, which {@link #close()} leaves running. */
+  public boolean isShared() {
+    return shared;
+  }
+
+  /**
+   * Stops and removes the container, unless this fixture is {@link #isShared() shared}: then this
+   * is a no-op, because no single test owns a shared fixture and closing it would break every other
+   * test class using it. The JVM shutdown hook installed by {@link OpenSearchTestContainers} stops
+   * shared fixtures.
+   */
   @Override
   public synchronized void close() {
+    if (shared) {
+      return;
+    }
+    release();
+  }
+
+  void markShared() {
+    shared = true;
+  }
+
+  /** The real close, used for owned fixtures and the shared-fixture shutdown. */
+  synchronized void release() {
     if (!closed) {
       container.close();
       started = false;
