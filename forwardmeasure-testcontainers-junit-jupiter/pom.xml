@@ -35,6 +35,10 @@
     </dependency>
     <dependency>
       <groupId>${project.groupId}</groupId>
+      <artifactId>forwardmeasure-testcontainers-cassandra</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>${project.groupId}</groupId>
       <artifactId>forwardmeasure-testcontainers-kafka</artifactId>
     </dependency>
     <dependency>

@@ -17,6 +17,7 @@
 package com.forwardmeasure.testcontainers.junit.opensearch;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.forwardmeasure.testcontainers.opensearch.OpenSearchTestContainer;
@@ -53,5 +54,7 @@ class OpenSearchContainerExtensionIntegrationTest {
     assertTrue(container.isRunning());
     assertTrue(response.statusCode() >= 200 && response.statusCode() < 300);
     assertFalse(container.isSecurityEnabled());
+    assertSame(container, OpenSearchContainerExtension.containerFor(getClass()));
+    assertFalse(container.isShared());
   }
 }
