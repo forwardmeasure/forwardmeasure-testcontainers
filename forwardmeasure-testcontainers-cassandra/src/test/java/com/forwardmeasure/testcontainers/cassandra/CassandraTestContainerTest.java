@@ -17,8 +17,10 @@
 package com.forwardmeasure.testcontainers.cassandra;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.datastax.oss.driver.api.core.CqlSession;
 import java.time.Duration;
@@ -61,7 +63,9 @@ class CassandraTestContainerTest {
                 .one()
                 .getString("value"));
       }
+      assertTrue(cassandra.isRunning());
       cassandra.close();
+      assertFalse(cassandra.isRunning());
       assertThrows(IllegalStateException.class, cassandra::contactPoint);
       assertThrows(IllegalStateException.class, cassandra::start);
     }
@@ -81,6 +85,9 @@ class CassandraTestContainerTest {
                     new OneShotStartupCheckStrategy().withTimeout(Duration.ofMinutes(2)))) {
       peer.start();
       assertEquals(0L, peer.getCurrentContainerInfo().getState().getExitCodeLong());
+      // The address the fixture hands to services on the network is the one cqlsh just used.
+      assertEquals("cassandra-fixture", cassandra.networkContactPoint().getHostString());
+      assertEquals(9042, cassandra.networkContactPoint().getPort());
       // Still reachable from the host as well.
       try (var session =
           CqlSession.builder()
