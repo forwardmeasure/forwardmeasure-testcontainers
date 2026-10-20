@@ -40,6 +40,11 @@ public final class KeycloakTestContainer implements AutoCloseable {
   public static final String JVM_OPTIONS_PROPERTY =
       "forwardmeasure.testcontainers.keycloak.jvm-options";
 
+  /**
+   * Explicit image selection for reviewing a locally rebuilt provider without changing defaults.
+   */
+  public static final String IMAGE_PROPERTY = "forwardmeasure.testcontainers.keycloak.image";
+
   private static final DockerImageName IMAGE = DockerImageName.parse(image());
 
   private static final Pattern ACCESS_TOKEN =
@@ -236,6 +241,10 @@ public final class KeycloakTestContainer implements AutoCloseable {
   }
 
   private static String image() {
+    String override = System.getProperty(IMAGE_PROPERTY);
+    if (override != null) {
+      return required(override, IMAGE_PROPERTY);
+    }
     Properties properties = new Properties();
     try (var stream =
         KeycloakTestContainer.class.getResourceAsStream("/keycloak-testcontainer.properties")) {
