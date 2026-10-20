@@ -42,9 +42,9 @@ public final class CassandraTlsMaterial implements AutoCloseable {
   private final CassandraTlsConfiguration.Store serverTrust;
   private final CassandraTlsConfiguration.Store clientTrust;
 
-  private CassandraTlsMaterial(Path directory) {
+  private CassandraTlsMaterial(Path directory, String serverName, String subjectAlternativeNames) {
     this.directory = directory;
-    generate("server", "localhost", "SAN=dns:localhost,ip:127.0.0.1");
+    generate("server", serverName, subjectAlternativeNames);
     generate("client", "cassandra-client", null);
     export("server");
     export("client");
@@ -57,6 +57,18 @@ public final class CassandraTlsMaterial implements AutoCloseable {
   }
 
   public static CassandraTlsMaterial create() {
+    return create("localhost", "SAN=dns:localhost,ip:127.0.0.1");
+  }
+
+  /** A certificate for exactly this DNS name, useful for actual hostname-verification refusals. */
+  public static CassandraTlsMaterial forServerName(String serverName) {
+    if (serverName == null || !serverName.matches("[A-Za-z0-9][A-Za-z0-9.-]{0,252}")) {
+      throw new IllegalArgumentException("A fixture server DNS name is required");
+    }
+    return create(serverName, "SAN=dns:" + serverName);
+  }
+
+  private static CassandraTlsMaterial create(String serverName, String subjectAlternativeNames) {
     Path directory;
     try {
       directory = Files.createTempDirectory("forwardmeasure-cassandra-tls-");
@@ -64,7 +76,7 @@ public final class CassandraTlsMaterial implements AutoCloseable {
       throw new UncheckedIOException(failure);
     }
     try {
-      return new CassandraTlsMaterial(directory);
+      return new CassandraTlsMaterial(directory, serverName, subjectAlternativeNames);
     } catch (RuntimeException failure) {
       delete(directory);
       throw failure;
