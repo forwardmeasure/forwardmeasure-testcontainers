@@ -44,6 +44,7 @@ import org.testcontainers.utility.DockerImageName;
  * @param startupTimeout how long to wait for CQL to answer
  * @param networkId a caller-owned Docker network to attach to
  * @param networkAliases DNS aliases on that network
+ * @param tls optional server/client stores; retained in the shared-fixture identity
  */
 public record CassandraContainerConfiguration(
     DockerImageName image,
@@ -55,7 +56,8 @@ public record CassandraContainerConfiguration(
     Optional<String> configurationFile,
     Duration startupTimeout,
     Optional<String> networkId,
-    List<String> networkAliases) {
+    List<String> networkAliases,
+    Optional<CassandraTlsConfiguration> tls) {
 
   public static final String DEFAULT_IMAGE_NAME = "cassandra:5.0.5";
 
@@ -106,6 +108,48 @@ public record CassandraContainerConfiguration(
         Objects.requireNonNull(networkId, "networkId").map(value -> required(value, "networkId"));
     networkAliases = List.copyOf(Objects.requireNonNull(networkAliases, "networkAliases"));
     networkAliases.forEach(alias -> required(alias, "networkAlias"));
+    tls = Objects.requireNonNull(tls, "tls");
+  }
+
+  /** Source/binary-compatible constructor for existing plaintext fixtures. */
+  public CassandraContainerConfiguration(
+      DockerImageName image,
+      String maxHeapSize,
+      String heapNewSize,
+      long memoryBytes,
+      long memorySwapBytes,
+      boolean passwordAuthentication,
+      Optional<String> configurationFile,
+      Duration startupTimeout,
+      Optional<String> networkId,
+      List<String> networkAliases) {
+    this(
+        image,
+        maxHeapSize,
+        heapNewSize,
+        memoryBytes,
+        memorySwapBytes,
+        passwordAuthentication,
+        configurationFile,
+        startupTimeout,
+        networkId,
+        networkAliases,
+        Optional.empty());
+  }
+
+  public CassandraContainerConfiguration withTls(CassandraTlsConfiguration tls) {
+    return new CassandraContainerConfiguration(
+        image,
+        maxHeapSize,
+        heapNewSize,
+        memoryBytes,
+        memorySwapBytes,
+        passwordAuthentication,
+        configurationFile,
+        startupTimeout,
+        networkId,
+        networkAliases,
+        Optional.of(tls));
   }
 
   /** The fixture's long-standing settings: {@code cassandra:5.0.5}, 512M heap, 2 GiB cap. */
@@ -120,7 +164,8 @@ public record CassandraContainerConfiguration(
         Optional.empty(),
         DEFAULT_STARTUP_TIMEOUT,
         Optional.empty(),
-        List.of());
+        List.of(),
+        Optional.empty());
   }
 
   public CassandraContainerConfiguration withImage(DockerImageName image) {
@@ -134,7 +179,8 @@ public record CassandraContainerConfiguration(
         configurationFile,
         startupTimeout,
         networkId,
-        networkAliases);
+        networkAliases,
+        tls);
   }
 
   /** Both heap settings at once: {@code cassandra-env.sh} only accepts them as a pair. */
@@ -149,7 +195,8 @@ public record CassandraContainerConfiguration(
         configurationFile,
         startupTimeout,
         networkId,
-        networkAliases);
+        networkAliases,
+        tls);
   }
 
   public CassandraContainerConfiguration withMemory(long memoryBytes, long memorySwapBytes) {
@@ -163,7 +210,8 @@ public record CassandraContainerConfiguration(
         configurationFile,
         startupTimeout,
         networkId,
-        networkAliases);
+        networkAliases,
+        tls);
   }
 
   public CassandraContainerConfiguration withPasswordAuthentication(boolean enabled) {
@@ -177,7 +225,8 @@ public record CassandraContainerConfiguration(
         configurationFile,
         startupTimeout,
         networkId,
-        networkAliases);
+        networkAliases,
+        tls);
   }
 
   /** A classpath resource that replaces {@code /etc/cassandra/cassandra.yaml}. */
@@ -192,7 +241,8 @@ public record CassandraContainerConfiguration(
         Optional.of(classpathResource),
         startupTimeout,
         networkId,
-        networkAliases);
+        networkAliases,
+        tls);
   }
 
   public CassandraContainerConfiguration withStartupTimeout(Duration startupTimeout) {
@@ -206,7 +256,8 @@ public record CassandraContainerConfiguration(
         configurationFile,
         startupTimeout,
         networkId,
-        networkAliases);
+        networkAliases,
+        tls);
   }
 
   /** Attaches to a caller-owned network, which the fixture never removes. */
@@ -221,13 +272,13 @@ public record CassandraContainerConfiguration(
         configurationFile,
         startupTimeout,
         Optional.of(networkId),
-        aliases);
+        aliases,
+        tls);
   }
 
   @Override
   public String toString() {
-    // Nothing secret lives here: the superuser credentials are the image's fixed defaults and are
-    // never part of the configuration.
+    // Never include TLS passwords, even in nested fixture diagnostics.
     return "CassandraContainerConfiguration[image="
         + image
         + ", maxHeapSize="
@@ -246,6 +297,8 @@ public record CassandraContainerConfiguration(
         + startupTimeout
         + ", networkId="
         + networkId
+        + ", tls="
+        + tls
         + ", networkAliases="
         + networkAliases
         + "]";

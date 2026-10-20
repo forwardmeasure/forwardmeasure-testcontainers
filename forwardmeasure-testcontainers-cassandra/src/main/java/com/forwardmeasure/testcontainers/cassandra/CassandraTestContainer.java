@@ -31,6 +31,8 @@ import java.util.Objects;
 import java.util.Set;
 import org.testcontainers.cassandra.CassandraContainer;
 import org.testcontainers.containers.Network;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.MountableFile;
 
 /**
@@ -99,7 +101,7 @@ public final class CassandraTestContainer implements AutoCloseable {
       throw new IllegalStateException("Authentication must be configured before start");
     if (!configuration.passwordAuthentication()) {
       configuration = configuration.withPasswordAuthentication(true);
-      enablePasswordAuthentication(container);
+      configureStartup(container, configuration);
     }
     return this;
   }
@@ -119,6 +121,9 @@ public final class CassandraTestContainer implements AutoCloseable {
       try {
         container.start();
         started = true;
+        if (configuration.tls().isPresent()) {
+          awaitEncryptedCql();
+        }
       } catch (RuntimeException | Error failure) {
         release();
         throw failure;
@@ -249,17 +254,17 @@ public final class CassandraTestContainer implements AutoCloseable {
   private synchronized CqlSession adminSession() {
     ensureStarted();
     if (adminSession == null) {
+      var loader =
+          DriverConfigLoader.programmaticBuilder()
+              .withDuration(DefaultDriverOption.REQUEST_TIMEOUT, ADMIN_REQUEST_TIMEOUT)
+              .withDuration(
+                  DefaultDriverOption.CONTROL_CONNECTION_AGREEMENT_TIMEOUT, ADMIN_REQUEST_TIMEOUT);
+      configuration.tls().ifPresent(tls -> tls.configureClient(loader, true));
       CqlSessionBuilder builder =
           CqlSession.builder()
               .addContactPoint(contactPoint())
               .withLocalDatacenter(localDatacenter())
-              .withConfigLoader(
-                  DriverConfigLoader.programmaticBuilder()
-                      .withDuration(DefaultDriverOption.REQUEST_TIMEOUT, ADMIN_REQUEST_TIMEOUT)
-                      .withDuration(
-                          DefaultDriverOption.CONTROL_CONNECTION_AGREEMENT_TIMEOUT,
-                          ADMIN_REQUEST_TIMEOUT)
-                      .build());
+              .withConfigLoader(loader.build());
       if (configuration.passwordAuthentication()) {
         builder.withAuthCredentials(superuserName(), superuserPassword());
       }
@@ -325,9 +330,39 @@ public final class CassandraTestContainer implements AutoCloseable {
                     MountableFile.forClasspathResource(
                         resource.startsWith("/") ? resource.substring(1) : resource),
                     CONFIGURATION_PATH));
-    if (settings.passwordAuthentication()) {
-      enablePasswordAuthentication(configured);
-    }
+    settings
+        .tls()
+        .ifPresent(
+            tls -> {
+              // The upstream Cassandra wait strategy opens plaintext CQL and cannot initialize
+              // TLS-only
+              // or mutual-TLS clusters. Wait for the socket, then authenticate with our real driver
+              // below.
+              configured.waitingFor(
+                  Wait.forListeningPort().withStartupTimeout(settings.startupTimeout()));
+              configured.withCopyFileToContainer(
+                  MountableFile.forHostPath(tls.serverKeyStore().file(), 0444),
+                  "/etc/cassandra/fixture-server.jks");
+              configured.withCopyFileToContainer(
+                  MountableFile.forHostPath(tls.serverTrustStore().file(), 0444),
+                  "/etc/cassandra/fixture-server-trust.jks");
+              String yaml =
+                  "client_encryption_options:\n  enabled: true\n  optional: false\n"
+                      + "  store_type: JKS\n  keystore: /etc/cassandra/fixture-server.jks\n"
+                      + "  keystore_password: "
+                      + yamlString(tls.serverKeyStore().password())
+                      + "\n"
+                      + "  truststore: /etc/cassandra/fixture-server-trust.jks\n"
+                      + "  truststore_password: "
+                      + yamlString(tls.serverTrustStore().password())
+                      + "\n"
+                      + "  require_client_auth: "
+                      + tls.requireClientAuthentication()
+                      + "\n";
+              configured.withCopyToContainer(
+                  Transferable.of(yaml, 0444), "/etc/cassandra/fixture-tls.yaml");
+            });
+    configureStartup(configured, settings);
     settings.networkId().ifPresent(networkId -> configured.withNetwork(existingNetwork(networkId)));
     if (!settings.networkAliases().isEmpty()) {
       configured.withNetworkAliases(settings.networkAliases().toArray(String[]::new));
@@ -335,17 +370,61 @@ public final class CassandraTestContainer implements AutoCloseable {
     return configured;
   }
 
-  private static void enablePasswordAuthentication(CassandraContainer container) {
+  private static void configureStartup(
+      CassandraContainer container, CassandraContainerConfiguration settings) {
+    if (!settings.passwordAuthentication() && settings.tls().isEmpty()) {
+      return;
+    }
+    String edits =
+        settings.tls().isEmpty()
+            ? ""
+            : "awk '/^client_encryption_options:/ {skip=1; next} skip && /^[^[:space:]#]/ {skip=0}"
+                + " !skip {print}' "
+                + CONFIGURATION_PATH
+                + " > /tmp/fixture-cassandra.yaml && cat /etc/cassandra/fixture-tls.yaml >>"
+                + " /tmp/fixture-cassandra.yaml && cat /tmp/fixture-cassandra.yaml > "
+                + CONFIGURATION_PATH
+                + " && ";
+    if (settings.passwordAuthentication()) {
+      edits +=
+          "sed -i -e 's/AllowAllAuthenticator/PasswordAuthenticator/'"
+              + " -e 's/AllowAllAuthorizer/CassandraAuthorizer/' "
+              + CONFIGURATION_PATH
+              + " && ";
+    }
+    String startup = edits + "exec docker-entrypoint.sh cassandra -f";
     container.withCreateContainerCmdModifier(
-        command ->
-            command
-                .withEntrypoint("sh", "-c")
-                .withCmd(
-                    "sed -i -e 's/AllowAllAuthenticator/PasswordAuthenticator/'"
-                        + " -e 's/AllowAllAuthorizer/CassandraAuthorizer/'"
-                        + " "
-                        + CONFIGURATION_PATH
-                        + " && exec docker-entrypoint.sh cassandra -f"));
+        command -> command.withEntrypoint("sh", "-c").withCmd(startup));
+  }
+
+  private static String yamlString(String value) {
+    return "'" + value.replace("'", "''") + "'";
+  }
+
+  private void awaitEncryptedCql() {
+    long deadline = System.nanoTime() + configuration.startupTimeout().toNanos();
+    RuntimeException lastFailure;
+    do {
+      try {
+        adminSession().execute("SELECT release_version FROM system.local");
+        return;
+      } catch (RuntimeException notReady) {
+        lastFailure = notReady;
+        if (adminSession != null) {
+          adminSession.close();
+          adminSession = null;
+        }
+      }
+      try {
+        Thread.sleep(500);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException(
+            "Interrupted waiting for encrypted Cassandra CQL", interrupted);
+      }
+    } while (System.nanoTime() < deadline);
+    throw new IllegalStateException(
+        "Cassandra did not accept encrypted authenticated CQL", lastFailure);
   }
 
   /**
