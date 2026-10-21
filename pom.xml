@@ -61,6 +61,8 @@
   </properties>
 
   <modules>
+    <module>parents/quarkus</module>
+    <module>parents/neutral</module>
     <module>forwardmeasure-testcontainers-bom</module>
     <module>forwardmeasure-testcontainers-minio</module>
     <module>forwardmeasure-testcontainers-cassandra</module>
@@ -78,57 +80,57 @@
   <dependencyManagement>
     <dependencies>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-keycloak</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-cassandra</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-valkey</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-gcs</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-minio</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-postgresql</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-opensearch</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-kafka</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-kubernetes</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-junit-jupiter</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
-        <groupId>${project.groupId}</groupId>
+        <groupId>com.forwardmeasure.testcontainers</groupId>
         <artifactId>forwardmeasure-testcontainers-quarkus</artifactId>
         <version>${project.version}</version>
       </dependency>
