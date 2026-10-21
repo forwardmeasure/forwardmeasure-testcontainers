@@ -16,51 +16,91 @@
  */
 package com.forwardmeasure.testcontainers.cassandra;
 
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.CqlSessionBuilder;
+import com.datastax.oss.driver.api.core.config.DefaultDriverOption;
+import com.datastax.oss.driver.api.core.config.DriverConfigLoader;
+import com.datastax.oss.driver.api.core.servererrors.AlreadyExistsException;
 import java.net.InetSocketAddress;
+import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
 import org.testcontainers.cassandra.CassandraContainer;
+import org.testcontainers.containers.Network;
+import org.testcontainers.utility.MountableFile;
 
-/** Explicitly owned single-node Cassandra fixture for real persistence contracts. */
+/**
+ * Explicitly owned single-node Cassandra fixture for real persistence contracts.
+ *
+ * <p>A fixture is either owned by its creator, who must {@link #close()} it, or shared JVM-wide
+ * through {@link CassandraTestContainers#shared(CassandraContainerConfiguration)}. A shared fixture
+ * ignores {@link #close()} - no single test owns it - and is stopped by a JVM shutdown hook (and,
+ * failing that, by Testcontainers' Ryuk). Tests sharing one fixture isolate their data with {@link
+ * #createUniqueKeyspace(String)}.
+ */
 public final class CassandraTestContainer implements AutoCloseable {
+
+  public static final int CQL_PORT = 9042;
+
+  static final String CONFIGURATION_PATH = "/etc/cassandra/cassandra.yaml";
+
+  private static final Set<String> SYSTEM_KEYSPACES =
+      Set.of(
+          "system",
+          "system_auth",
+          "system_distributed",
+          "system_schema",
+          "system_traces",
+          "system_views",
+          "system_virtual_schema");
+
+  private static final int UNIQUE_SUFFIX_LENGTH = 12;
+
+  private static final int MAX_PREFIX_LENGTH =
+      CassandraKeyspace.MAX_NAME_LENGTH - 1 - UNIQUE_SUFFIX_LENGTH;
+
+  private static final Duration ADMIN_REQUEST_TIMEOUT = Duration.ofSeconds(60);
+
+  private static final SecureRandom RANDOM = new SecureRandom();
+
+  private volatile CassandraContainerConfiguration configuration;
   private final CassandraContainer container;
-  private boolean started;
-  private boolean closed;
+  private volatile boolean started;
+  private volatile boolean closed;
+  private volatile boolean shared;
+  private CqlSession adminSession;
 
   public CassandraTestContainer() {
-    container =
-        new CassandraContainer("cassandra:5.0.5")
-            .withEnv("MAX_HEAP_SIZE", "512M")
-            .withEnv("HEAP_NEWSIZE", "100M")
-            .withStartupTimeout(Duration.ofMinutes(3))
-            .withCreateContainerCmdModifier(
-                command -> command.getHostConfig().withMemory(2L * 1024 * 1024 * 1024));
+    this(CassandraContainerConfiguration.defaults());
+  }
+
+  public CassandraTestContainer(CassandraContainerConfiguration configuration) {
+    this.configuration = Objects.requireNonNull(configuration, "configuration");
+    this.container = configure(configuration);
   }
 
   /** Attaches Cassandra to the caller's disposable network for real service-to-database traffic. */
-  public CassandraTestContainer(org.testcontainers.containers.Network network, String alias) {
-    this();
-    java.util.Objects.requireNonNull(network, "network");
-    if (alias == null || alias.isBlank()) throw new IllegalArgumentException("alias is required");
-    container.withNetwork(network).withNetworkAliases(alias);
+  public CassandraTestContainer(Network network, String alias) {
+    this(networked(network, alias));
   }
 
   /**
    * Turns on Cassandra's own password authentication and role-based authorization (as k8ssandra
    * clusters run), with the default {@code cassandra}/{@code cassandra} superuser - for contracts
-   * that create roles and grant them keyspaces. Call before {@link #start()}.
+   * that create roles and grant them keyspaces. Call before {@link #start()}. Equivalent to {@link
+   * CassandraContainerConfiguration#withPasswordAuthentication(boolean)}.
    */
   public synchronized CassandraTestContainer withPasswordAuthentication() {
     if (started || closed)
       throw new IllegalStateException("Authentication must be configured before start");
-    container.withCreateContainerCmdModifier(
-        command ->
-            command
-                .withEntrypoint("sh", "-c")
-                .withCmd(
-                    "sed -i -e 's/AllowAllAuthenticator/PasswordAuthenticator/'"
-                        + " -e 's/AllowAllAuthorizer/CassandraAuthorizer/'"
-                        + " /etc/cassandra/cassandra.yaml"
-                        + " && exec docker-entrypoint.sh cassandra -f"));
+    if (!configuration.passwordAuthentication()) {
+      configuration = configuration.withPasswordAuthentication(true);
+      enablePasswordAuthentication(container);
+    }
     return this;
   }
 
@@ -80,7 +120,7 @@ public final class CassandraTestContainer implements AutoCloseable {
         container.start();
         started = true;
       } catch (RuntimeException | Error failure) {
-        close();
+        release();
         throw failure;
       }
     }
@@ -89,7 +129,23 @@ public final class CassandraTestContainer implements AutoCloseable {
 
   public InetSocketAddress contactPoint() {
     ensureStarted();
-    return new InetSocketAddress(container.getHost(), container.getMappedPort(9042));
+    return new InetSocketAddress(container.getHost(), container.getMappedPort(CQL_PORT));
+  }
+
+  /**
+   * The CQL address other containers on the configured network use: the first network alias and the
+   * container's own CQL port, unresolved (it only resolves inside Docker's network).
+   */
+  public InetSocketAddress networkContactPoint() {
+    ensureStarted();
+    String alias =
+        configuration.networkAliases().stream()
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "No Cassandra container network alias is configured"));
+    return InetSocketAddress.createUnresolved(alias, CQL_PORT);
   }
 
   public String localDatacenter() {
@@ -97,16 +153,216 @@ public final class CassandraTestContainer implements AutoCloseable {
     return container.getLocalDatacenter();
   }
 
+  public String containerName() {
+    ensureStarted();
+    return container.getContainerName();
+  }
+
+  public CassandraContainerConfiguration configuration() {
+    return configuration;
+  }
+
+  /** Whether this fixture is a JVM-wide shared one, which {@link #close()} leaves running. */
+  public boolean isShared() {
+    return shared;
+  }
+
+  public boolean isRunning() {
+    return started && !closed && container.isRunning();
+  }
+
+  /**
+   * Creates a fresh keyspace ({@code SimpleStrategy}, replication factor 1) whose name starts with
+   * {@code prefix} and ends with a random suffix, so test classes sharing one container never see
+   * each other's data. The prefix is normalised to a valid unquoted name: lower-cased, every
+   * character outside {@code [a-z0-9_]} replaced by {@code _}, prefixed with {@code k} if it does
+   * not start with a letter, and truncated so the whole name fits Cassandra's 48 characters.
+   * Creation fails rather than reuse an existing keyspace. Uses the superuser when password
+   * authentication is on.
+   *
+   * @throws IllegalArgumentException if {@code prefix} is blank
+   * @throws IllegalStateException if the fixture is not running
+   */
+  public CassandraKeyspace createUniqueKeyspace(String prefix) {
+    String normalised = normalisePrefix(prefix);
+    CqlSession session = adminSession();
+    AlreadyExistsException collision = null;
+    for (int attempt = 0; attempt < 3; attempt++) {
+      CassandraKeyspace keyspace = new CassandraKeyspace(normalised + '_' + uniqueSuffix());
+      try {
+        session.execute(
+            "CREATE KEYSPACE "
+                + keyspace.name()
+                + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
+        return keyspace;
+      } catch (AlreadyExistsException exists) {
+        collision = exists;
+      }
+    }
+    throw new IllegalStateException("Could not find an unused keyspace name", collision);
+  }
+
+  /**
+   * Drops the keyspace if it exists. Accepts only unquoted lower-case names (as {@link
+   * #createUniqueKeyspace(String)} makes) and refuses Cassandra's system keyspaces.
+   *
+   * @throws IllegalArgumentException if {@code name} is not such a name, or names a system keyspace
+   * @throws IllegalStateException if the fixture is not running
+   */
+  public void dropKeyspace(String name) {
+    CassandraKeyspace keyspace = new CassandraKeyspace(name);
+    if (SYSTEM_KEYSPACES.contains(keyspace.name())) {
+      throw new IllegalArgumentException("Refusing to drop system keyspace " + name);
+    }
+    adminSession().execute("DROP KEYSPACE IF EXISTS " + keyspace.name());
+  }
+
+  /**
+   * Stops and removes the container, unless this fixture is {@link #isShared() shared}: then this
+   * is a no-op, because no single test owns a shared fixture and closing it would break every other
+   * test class using it. The JVM shutdown hook installed by {@link CassandraTestContainers} stops
+   * shared fixtures.
+   */
+  @Override
+  public synchronized void close() {
+    if (shared) return;
+    release();
+  }
+
+  void markShared() {
+    shared = true;
+  }
+
+  /** The real close, used for owned fixtures, failed starts and the shared-fixture shutdown. */
+  synchronized void release() {
+    if (closed) return;
+    closed = true;
+    try {
+      if (adminSession != null) adminSession.close();
+    } finally {
+      adminSession = null;
+      container.close();
+      started = false;
+    }
+  }
+
+  private synchronized CqlSession adminSession() {
+    ensureStarted();
+    if (adminSession == null) {
+      CqlSessionBuilder builder =
+          CqlSession.builder()
+              .addContactPoint(contactPoint())
+              .withLocalDatacenter(localDatacenter())
+              .withConfigLoader(
+                  DriverConfigLoader.programmaticBuilder()
+                      .withDuration(DefaultDriverOption.REQUEST_TIMEOUT, ADMIN_REQUEST_TIMEOUT)
+                      .withDuration(
+                          DefaultDriverOption.CONTROL_CONNECTION_AGREEMENT_TIMEOUT,
+                          ADMIN_REQUEST_TIMEOUT)
+                      .build());
+      if (configuration.passwordAuthentication()) {
+        builder.withAuthCredentials(superuserName(), superuserPassword());
+      }
+      adminSession = builder.build();
+    }
+    return adminSession;
+  }
+
   private void ensureStarted() {
     if (!started || closed)
       throw new IllegalStateException("Cassandra test container is not running");
   }
 
-  @Override
-  public synchronized void close() {
-    if (closed) return;
-    closed = true;
-    container.close();
-    started = false;
+  static String normalisePrefix(String prefix) {
+    Objects.requireNonNull(prefix, "prefix");
+    if (prefix.isBlank()) throw new IllegalArgumentException("prefix must not be blank");
+    String normalised = prefix.strip().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_]", "_");
+    char first = normalised.charAt(0);
+    if (first < 'a' || first > 'z') {
+      normalised = "k" + normalised;
+    }
+    return normalised.length() > MAX_PREFIX_LENGTH
+        ? normalised.substring(0, MAX_PREFIX_LENGTH)
+        : normalised;
+  }
+
+  private static String uniqueSuffix() {
+    byte[] bytes = new byte[UNIQUE_SUFFIX_LENGTH / 2];
+    RANDOM.nextBytes(bytes);
+    return HexFormat.of().formatHex(bytes);
+  }
+
+  private static CassandraContainerConfiguration networked(Network network, String alias) {
+    Objects.requireNonNull(network, "network");
+    if (alias == null || alias.isBlank()) throw new IllegalArgumentException("alias is required");
+    return CassandraContainerConfiguration.defaults().withNetwork(network.getId(), List.of(alias));
+  }
+
+  private static CassandraContainer configure(CassandraContainerConfiguration settings) {
+    CassandraContainer configured =
+        new CassandraContainer(settings.image().asCompatibleSubstituteFor("cassandra"))
+            .withEnv("MAX_HEAP_SIZE", settings.maxHeapSize())
+            .withEnv("HEAP_NEWSIZE", settings.heapNewSize())
+            .withStartupTimeout(settings.startupTimeout());
+    if (settings.memoryBytes() > 0 || settings.memorySwapBytes() > 0) {
+      configured.withCreateContainerCmdModifier(
+          command -> {
+            if (settings.memoryBytes() > 0) {
+              command.getHostConfig().withMemory(settings.memoryBytes());
+            }
+            if (settings.memorySwapBytes() > 0) {
+              command.getHostConfig().withMemorySwap(settings.memorySwapBytes());
+            }
+          });
+    }
+    // Copied in before the container starts, so the entrypoint (and the password-authentication
+    // edit below) operate on the caller's file. Resolving it here fails fast on a missing resource.
+    settings
+        .configurationFile()
+        .ifPresent(
+            resource ->
+                configured.withCopyFileToContainer(
+                    MountableFile.forClasspathResource(
+                        resource.startsWith("/") ? resource.substring(1) : resource),
+                    CONFIGURATION_PATH));
+    if (settings.passwordAuthentication()) {
+      enablePasswordAuthentication(configured);
+    }
+    settings.networkId().ifPresent(networkId -> configured.withNetwork(existingNetwork(networkId)));
+    if (!settings.networkAliases().isEmpty()) {
+      configured.withNetworkAliases(settings.networkAliases().toArray(String[]::new));
+    }
+    return configured;
+  }
+
+  private static void enablePasswordAuthentication(CassandraContainer container) {
+    container.withCreateContainerCmdModifier(
+        command ->
+            command
+                .withEntrypoint("sh", "-c")
+                .withCmd(
+                    "sed -i -e 's/AllowAllAuthenticator/PasswordAuthenticator/'"
+                        + " -e 's/AllowAllAuthorizer/CassandraAuthorizer/'"
+                        + " "
+                        + CONFIGURATION_PATH
+                        + " && exec docker-entrypoint.sh cassandra -f"));
+  }
+
+  /**
+   * Refers to a caller-owned Docker network without assuming ownership of its lifecycle, as the
+   * PostgreSQL and OpenSearch fixtures do: closing the fixture must not remove the network.
+   */
+  private static Network existingNetwork(String networkId) {
+    return new Network() {
+      @Override
+      public String getId() {
+        return networkId;
+      }
+
+      @Override
+      public void close() {
+        // The caller that supplied the network ID owns the network.
+      }
+    };
   }
 }

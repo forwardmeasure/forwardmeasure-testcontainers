@@ -23,7 +23,11 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-/** Starts one OpenSearch container for the annotated JUnit test class. */
+/**
+ * Provides an OpenSearch container to the annotated JUnit test class: by default one container
+ * started for the class and closed after it; with {@link #shared()} the JVM-wide shared container
+ * for these settings, which the class never closes.
+ */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @ExtendWith(OpenSearchContainerExtension.class)
@@ -36,4 +40,10 @@ public @interface WithOpenSearchContainer {
   long memoryBytes() default OpenSearchContainerConfiguration.DEFAULT_MEMORY_BYTES;
 
   long memorySwapBytes() default OpenSearchContainerConfiguration.DEFAULT_MEMORY_SWAP_BYTES;
+
+  /**
+   * Use the JVM-wide shared container for these settings ({@code OpenSearchTestContainers.shared})
+   * instead of starting one for this class; give each class its own index names.
+   */
+  boolean shared() default false;
 }

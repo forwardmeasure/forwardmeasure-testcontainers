@@ -12,6 +12,33 @@ Fixtures never log credentials. Consumers can use the core lifecycle without JUn
 
 See [the architecture](docs/architecture.md).
 
+## Cassandra and OpenSearch for large suites
+
+`forwardmeasure-testcontainers-cassandra` configures Cassandra through an
+immutable `CassandraContainerConfiguration` (image, heap, memory, password
+authentication, a caller-supplied `cassandra.yaml`, startup timeout, network)
+and creates and drops unique keyspaces through the Cassandra driver.
+`CassandraTestContainers.shared(configuration)` and
+`OpenSearchTestContainers.shared(configuration)` start one container per
+configuration per JVM; a shared container ignores `close()` and is stopped by a
+shutdown hook. One shared Cassandra with a fresh keyspace per test class keeps
+classes isolated without paying a container start for each:
+
+```java
+@WithCassandraContainer(shared = true, keyspacePerClass = true)
+class GraphStoreTest {
+  @Test
+  void writes(CassandraTestContainer cassandra, CassandraKeyspace keyspace) { ... }
+}
+```
+
+`CassandraContainerExtension.containerFor(Class)` / `keyspaceFor(Class)` and
+`OpenSearchContainerExtension.containerFor(Class)` serve Spring and Micronaut
+property hooks. In Quarkus, `@WithCassandraTestContainer` and
+`@WithOpenSearchTestContainer` emit exactly the configuration properties they
+name, for example
+`@WithCassandraTestContainer(shared = true, keyspaceProperty = "app.keyspace")`.
+
 The staged replacement for Data Fabric's existing Quarkus utility is documented in [Data Fabric migration](docs/data-fabric-migration.md).
 
 ## Keycloak
