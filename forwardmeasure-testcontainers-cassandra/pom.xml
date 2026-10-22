@@ -19,8 +19,9 @@
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <groupId>com.forwardmeasure.testcontainers</groupId>
-    <artifactId>forwardmeasure-testcontainers-parent</artifactId>
+    <artifactId>forwardmeasure-testcontainers-neutral-parent</artifactId>
     <version>${revision}</version>
+    <relativePath>../parents/neutral/pom.xml</relativePath>
   </parent>
   <artifactId>forwardmeasure-testcontainers-cassandra</artifactId>
   <name>ForwardMeasure Testcontainers Cassandra</name>
@@ -28,6 +29,17 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-cassandra</artifactId>
+      <exclusions>
+        <!-- The DataStax 3.x driver is used only by Testcontainers' deprecated
+             org.testcontainers.containers.CassandraContainer; this fixture and every product use
+             org.testcontainers.cassandra.CassandraContainer, which needs no driver. Left in, its
+             metrics-core and jnr-posix fail dependency convergence against the 4.x
+             java-driver-core below. -->
+        <exclusion>
+          <groupId>com.datastax.cassandra</groupId>
+          <artifactId>cassandra-driver-core</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <!-- The fixture's keyspace helpers talk CQL through the same driver every product uses. -->
     <dependency>
